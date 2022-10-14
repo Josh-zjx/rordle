@@ -10,7 +10,9 @@ const YELLOW: Color = Color::rgb(0.75, 0.75, 0.25);
 //const RED: Color = Color::rgb(0.75, 0.25, 0.25);
 
 pub mod game;
+pub mod solver;
 use game::*;
+use solver::*;
 
 fn check_guess(
     mut game_query: Query<&mut Game, With<Game>>,
@@ -217,7 +219,7 @@ fn key_input(
 }
 
 /// Main Entry
-fn main() -> () {
+fn _main() -> () {
     App::new()
         .insert_resource(WindowDescriptor {
             title: "Rordle".to_string(),
@@ -237,7 +239,31 @@ fn main() -> () {
         )
         .run();
 }
-
+fn main() -> () {
+    let mut sum = 0;
+    for i in 0..100 {
+        let mut game = Game::new();
+        let mut solver = Solver::bind(&mut game);
+        let mut count = 0;
+        loop {
+            count += 1;
+            let guess = solver.new_guess();
+            let one_match = solver.try_guess(&guess);
+            match one_match {
+                Some(one) => {
+                    if one.is_correct() {
+                        break;
+                    }
+                }
+                None => (),
+            }
+        }
+        println!("{:}", count);
+        sum += count;
+    }
+    println!("Total attempts: {:}", sum);
+    println!("Average attempts: {:}", sum as f64 / 100.);
+}
 /// Initialize Game State, UI components and Resources
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Read data to build answer set and candidate set

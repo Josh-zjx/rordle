@@ -1,7 +1,7 @@
 use bevy::prelude::Component;
 use std::io::prelude::*;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum GuessState {
     Wrong,
     Misplace,
@@ -92,7 +92,6 @@ impl Game {
         return self.round;
     }
     pub fn inc_round(&mut self) {
-        assert_ne!(self.round, 6);
         self.round += 1;
     }
     pub fn answer(&self) -> String {
@@ -100,7 +99,7 @@ impl Game {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Match {
     pub states: [GuessState; 5],
 }
@@ -136,7 +135,7 @@ pub enum GameState {
     Correct,
     Over,
 }
-#[derive(Component)]
+#[derive(Component, Clone, Debug)]
 pub struct Guess {
     pub state: String,
 }
