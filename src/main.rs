@@ -1,9 +1,5 @@
 use bevy::text::Text2dBounds;
 use bevy::{prelude::*, window::PresentMode};
-use rand;
-use std;
-use std::collections::hash_map;
-use std::io::prelude::*;
 
 // Define the size of Box
 const BOX_SIZE: Vec2 = Vec2::new(40.0, 40.0);
@@ -13,105 +9,35 @@ const GREEN: Color = Color::rgb(0.25, 0.75, 0.25);
 const YELLOW: Color = Color::rgb(0.75, 0.75, 0.25);
 //const RED: Color = Color::rgb(0.75, 0.25, 0.25);
 
-#[derive(PartialEq, Debug)]
-enum GuessState {
-    Wrong,
-    Misplace,
-    Correct,
-}
-#[derive(PartialEq, Debug)]
-enum GameState {
-    On,
-    ReadyForCheck,
-    Correct,
-    Over,
-}
-#[derive(Debug)]
-pub struct Match {
-    states: [GuessState; 5],
-}
-impl Match {
-    pub fn is_correct(&self) -> bool {
-        if self.states[0] == GuessState::Correct
-            && self.states[1] == GuessState::Correct
-            && self.states[2] == GuessState::Correct
-            && self.states[3] == GuessState::Correct
-            && self.states[4] == GuessState::Correct
-        {
-            true
-        } else {
-            false
-        }
-    }
-    pub fn new() -> Match {
-        return Match {
-            states: [
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-            ],
-        };
-    }
-}
+pub mod game;
+use game::*;
 
-fn check_input(
-    mut submit_query: Query<&mut Submit, With<Submit>>,
+fn check_guess(
+    mut game_query: Query<&mut Game, With<Game>>,
     mut guess_query: Query<&mut Guess, With<Guess>>,
     mut board_query: Query<(&mut Sprite, &Row, &Col), (With<Sprite>, With<Row>, With<Col>)>,
-    answer: Res<Answer>,
-    candidates: Res<Candidates>,
     mut toast: Query<&mut Text, (With<Toast>, With<Text>)>,
     mut status: Query<&mut Text, (Without<Toast>, With<StatusBoard>)>,
 ) {
-    let mut submit = submit_query.single_mut();
+    let mut game = game_query.single_mut();
 
     // Only execute when user submit a full guess
-    if submit.state == GameState::ReadyForCheck {
-        submit.state = GameState::On;
+    if game.state == GameState::ReadyForCheck {
+        game.state = GameState::On;
         let mut guess = guess_query.single_mut();
-        let word = &guess.state;
 
         // Filter and Reject non-valid guess
-        if candidates.state.iter().any(|i| i == word) {
+        if game.check_valid_guess(&guess) {
             toast.single_mut().sections[0].value = String::from("Valid Try!");
         } else {
             toast.single_mut().sections[0].value = String::from("Not in Dict");
             return;
         }
-
-        let mut one_match = Match::new();
-        // Correct pass
-        for i in 0..5 {
-            if word.as_bytes()[i] == answer.state.as_bytes()[i] {
-                one_match.states[i] = GuessState::Correct;
-            }
-        }
-        // Wrong pass
-        for i in 0..5 {
-            if word.as_bytes()[i] != answer.state.as_bytes()[i] {
-                let mut exist = false;
-                for j in 0..5 {
-                    if word.as_bytes()[i] == answer.state.as_bytes()[j] {
-                        exist = true;
-                        if one_match.states[j] != GuessState::Correct {
-                            one_match.states[i] = GuessState::Misplace;
-                            break;
-                        }
-                    }
-                }
-                if !exist && !submit.wrong.contains_key(&(*&word.as_bytes()[i] as char)) {
-                    submit
-                        .wrong
-                        .insert(word.as_bytes()[i] as char, GuessState::Wrong);
-                }
-            }
-        }
+        let one_match = game.grade_guess(&guess);
 
         // Color the guess as output
         for (mut a, b, c) in &mut board_query {
-            if b.index == submit.round {
+            if b.index == game.round() {
                 a.color = match one_match.states[c.index] {
                     GuessState::Wrong => GRAY,
                     GuessState::Correct => GREEN,
@@ -127,7 +53,7 @@ fn check_input(
         for i in 0..5 {
             if old_status.as_bytes()[i] == '*' as u8 {
                 if one_match.states[i] == GuessState::Correct {
-                    new_string.push(word.as_bytes()[i] as char);
+                    new_string.push(guess.state.as_bytes()[i] as char);
                 } else {
                     new_string.push('*');
                 }
@@ -137,15 +63,7 @@ fn check_input(
         }
         current_status.sections[0].value = new_string;
         // Check correctness
-        if one_match.is_correct() {
-            submit.state = GameState::Correct;
-            return;
-        } else {
-            submit.state = GameState::On;
-        }
-        // Update round statistics
-        submit.round += 1;
-
+        game.progress_game(one_match);
         // Clean guess
         guess.state = String::new();
     }
@@ -153,28 +71,16 @@ fn check_input(
 // Update status and input to UI
 fn update_board(
     query: Query<&Guess, With<Guess>>,
-    submit_query: Query<&Submit, With<Submit>>,
+    game: Query<&Game, With<Game>>,
     mut board_query: Query<(&mut Text, &Row, &Col), (With<Text>, With<Row>, With<Col>)>,
 ) {
-    let submit = submit_query.single();
+    let game = game.single();
     let string = &query.single().state;
     for (mut a, b, c) in &mut board_query {
-        if b.index == submit.round {
+        if b.index == game.round() {
             if c.index < string.chars().count() {
                 let letter = string.as_bytes()[c.index].clone() as char;
-                let display_text = match submit.wrong.get(&letter) {
-                    Some(state) => {
-                        if *state == GuessState::Wrong {
-                            let mut temp = String::from("( ");
-                            temp.push(letter);
-                            temp.push_str(" )");
-                            temp
-                        } else {
-                            letter.to_string()
-                        }
-                    }
-                    None => letter.to_string(),
-                };
+                let display_text = letter.to_string();
                 a.sections[0].value = display_text;
             } else {
                 a.sections[0].value = String::from("  ");
@@ -184,17 +90,16 @@ fn update_board(
 }
 // Check whether the game is over and input should be freezed
 fn check_game_over(
-    mut submit_query: Query<&mut Submit, With<Submit>>,
+    mut game_query: Query<&mut Game, With<Game>>,
     mut toast_query: Query<&mut Text, (With<Toast>, With<Text>)>,
     mut status: Query<&mut Text, (Without<Toast>, With<StatusBoard>)>,
-    answer: Res<Answer>,
 ) {
-    let mut submit = submit_query.single_mut();
-    if submit.round >= 6 || submit.state == GameState::Correct {
+    let mut game = game_query.single_mut();
+    if game.round() >= 6 || game.state == GameState::Correct {
         let mut text = toast_query.single_mut();
         text.sections[0].value = String::from("Game is Over");
-        status.single_mut().sections[0].value = answer.state.clone();
-        submit.state = GameState::Over;
+        status.single_mut().sections[0].value = game.answer();
+        game.state = GameState::Over;
         return;
     }
 }
@@ -204,20 +109,20 @@ fn check_game_over(
 //      - only characters (regardless of capitalization) are valid input
 fn key_input(
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<&mut Guess, With<Guess>>,
-    mut submit_query: Query<&mut Submit, With<Submit>>,
+    mut guess_query: Query<&mut Guess, With<Guess>>,
+    mut game_query: Query<&mut Game, With<Game>>,
 ) {
-    let mut submit = submit_query.single_mut();
-    if submit.state == GameState::Over {
+    let mut game = game_query.single_mut();
+    if game.state == GameState::Over {
         return;
     }
-    let mut guess_content = query.single_mut();
+    let mut guess_content = guess_query.single_mut();
     let current_length = guess_content.state.chars().count();
 
     // Only accept full guess
     if keyboard_input.just_pressed(KeyCode::Return) {
         if current_length == 5 {
-            submit.state = GameState::ReadyForCheck;
+            game.state = GameState::ReadyForCheck;
             return;
         }
     } else if keyboard_input.just_pressed(KeyCode::Back) {
@@ -322,60 +227,24 @@ fn main() -> () {
             ..default()
         })
         .add_plugins(DefaultPlugins)
-        .insert_resource(Answer {
-            state: String::new(),
-        })
-        .insert_resource(Candidates { state: Vec::new() })
         .add_startup_system(setup)
         .add_system_set(
             SystemSet::new()
                 .with_system(key_input)
-                .with_system(check_input.after(key_input))
+                .with_system(check_guess.after(key_input))
                 .with_system(update_board.after(key_input))
-                .with_system(check_game_over.after(check_input)),
+                .with_system(check_game_over.after(check_guess)),
         )
         .run();
 }
 
 /// Initialize Game State, UI components and Resources
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut answer: ResMut<Answer>,
-    mut candidates: ResMut<Candidates>,
-) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Read data to build answer set and candidate set
-    let mut answer_strings = String::new();
-    {
-        let mut answer_file = std::fs::File::open("./data/answer").unwrap();
-        answer_file.read_to_string(&mut answer_strings).unwrap();
-    }
-    let mut answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
-
-    let mut index: usize = rand::random();
-    index = index % answers.len();
-
-    let mut candidate_strings = String::new();
-    {
-        let mut candidate_file = std::fs::File::open("./data/candidate").unwrap();
-        candidate_file
-            .read_to_string(&mut candidate_strings)
-            .unwrap();
-    }
-
-    let mut candidate_vec: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
-    answer.state = answers[index].to_string();
-    candidate_vec.append(&mut answers);
-    candidates.state = candidate_vec;
-
+    commands.spawn().insert(Game::new());
     // Camera
     commands.spawn_bundle(Camera2dBundle::default());
     // Initialize game state
-    commands.spawn().insert(Submit {
-        state: GameState::On,
-        round: 0,
-        wrong: hash_map::HashMap::new(),
-    });
     // Initialize Guess State
     commands.spawn().insert(Guess {
         state: String::new(),
@@ -457,18 +326,6 @@ struct Toast;
 struct StatusBoard;
 
 #[derive(Component)]
-struct Submit {
-    state: GameState,
-    round: usize,
-    wrong: hash_map::HashMap<char, GuessState>,
-}
-
-#[derive(Component)]
-struct Guess {
-    state: String,
-}
-
-#[derive(Component)]
 struct Col {
     index: usize,
 }
@@ -476,12 +333,4 @@ struct Col {
 #[derive(Component)]
 struct Row {
     index: usize,
-}
-
-struct Answer {
-    state: String,
-}
-
-struct Candidates {
-    state: Vec<String>,
 }
