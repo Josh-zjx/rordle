@@ -1,7 +1,8 @@
 use bevy::prelude::Component;
 use std::io::prelude::*;
+use std::rc::Rc;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GuessState {
     Wrong,
     Misplace,
@@ -11,6 +12,7 @@ pub enum GuessState {
 #[derive(Debug, Component)]
 pub struct Game {
     answer: String,
+    pub answers: Vec<String>,
     pub candidates: Vec<String>,
     round: usize,
     pub state: GameState,
@@ -22,7 +24,7 @@ impl Game {
             let mut answer_file = std::fs::File::open("./data/answer").unwrap();
             answer_file.read_to_string(&mut answer_strings).unwrap();
         }
-        let mut answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
+        let answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
 
         let mut index: usize = rand::random();
         index = index % answers.len();
@@ -36,10 +38,11 @@ impl Game {
         }
 
         let mut candidate_vec: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
-        let answer = answers[index].to_string();
-        candidate_vec.append(&mut answers);
+        let answer = answers[index].clone();
+        candidate_vec.append(&mut (answers.clone()));
         let new_game = Game {
             answer,
+            answers,
             candidates: candidate_vec,
             round: 0,
             state: GameState::On,
@@ -59,11 +62,12 @@ impl Game {
         for i in 0..5 {
             if word.as_bytes()[i] != self.answer.as_bytes()[i] {
                 for j in 0..5 {
+                    if one_match.states[j] == GuessState::Correct {
+                        continue;
+                    }
                     if word.as_bytes()[i] == self.answer.as_bytes()[j] {
-                        if one_match.states[j] != GuessState::Correct {
-                            one_match.states[i] = GuessState::Misplace;
-                            break;
-                        }
+                        one_match.states[i] = GuessState::Misplace;
+                        break;
                     }
                 }
             }
@@ -78,7 +82,7 @@ impl Game {
             return false;
         }
     }
-    pub fn progress_game(&mut self, one_match: Match) {
+    pub fn progress_game(&mut self, one_match: Rc<Match>) {
         if one_match.is_correct() {
             self.state = GameState::Correct;
             return;
@@ -96,6 +100,12 @@ impl Game {
     }
     pub fn answer(&self) -> String {
         return self.answer.clone();
+    }
+    pub fn reset(&mut self) {
+        let mut index: usize = rand::random();
+        index = index % self.answers.len();
+
+        self.answer = self.answers[index].clone();
     }
 }
 

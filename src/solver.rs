@@ -1,30 +1,25 @@
-use std::collections::HashSet;
-
 use super::game::*;
+use std::{collections::HashSet, rc::Rc};
 
 #[derive(Debug)]
-pub struct Solver<'a> {
-    game: &'a mut Game,
-    nonexist: [HashSet<char>; 5],
-    exist: HashSet<char>,
-    intent: [char; 5],
+pub struct Solver {
+    game: Game,
+    patterns: Vec<Pattern>,
     valid_table: Vec<bool>,
 }
 
-impl<'a> Solver<'a> {
-    pub fn bind(game: &mut Game) -> Solver {
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    chars: Rc<String>,
+    state: [GuessState; 5],
+}
+
+impl Solver {
+    pub fn bind(game: Game) -> Solver {
         let table_size = game.candidates.len();
         return Solver {
             game,
-            nonexist: [
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-            ],
-            exist: HashSet::new(),
-            intent: ['*'; 5],
+            patterns: Vec::new(),
             valid_table: vec![true; table_size],
         };
     }
@@ -35,101 +30,187 @@ impl<'a> Solver<'a> {
             };
         }
         let mut score = -1.0;
-        let mut index: String = String::new();
+        let mut index = 0;
         for i in 0..self.game.candidates.len() {
             let temp = self.valid_word(i);
             if temp {
                 let new_score = self.calculate_score(i);
                 if new_score > score {
                     score = new_score;
-                    index = self.game.candidates[i].clone();
+                    index = i;
                 }
             }
         }
-        return Guess { state: index };
+        dbg!(score);
+        return Guess {
+            state: dbg!(self.game.candidates[index].clone()),
+        };
     }
-    pub fn try_guess(&mut self, guess: &Guess) -> Option<Match> {
-        if !self.game.check_valid_guess(guess) {
+    pub fn try_guess(&mut self, guess: Guess) -> Option<Rc<Match>> {
+        if !self.game.check_valid_guess(&guess) {
             return None;
         }
-        let one_match = self.game.grade_guess(guess);
-        self.game.progress_game(one_match.clone());
-        for i in 0..5 {
-            if one_match.states[i] == GuessState::Correct {
-                self.intent[i] = guess.state.as_bytes()[i] as char;
-                self.exist.insert(guess.state.as_bytes()[i] as char);
-            } else if one_match.states[i] == GuessState::Misplace {
-                self.nonexist[i].insert(guess.state.as_bytes()[i] as char);
-                self.exist.insert(guess.state.as_bytes()[i] as char);
-            }
-        }
-        for i in 0..5 {
-            if one_match.states[i] == GuessState::Wrong {
-                if !self.exist.contains(&(guess.state.as_bytes()[i] as char)) {
-                    for j in 0..5 {
-                        self.nonexist[j].insert(guess.state.as_bytes()[i] as char);
-                    }
-                } else {
-                    self.nonexist[i].insert(guess.state.as_bytes()[i] as char);
-                }
-            }
-        }
-
-        return Some(one_match);
+        let one_match = self.game.grade_guess(dbg!(&guess));
+        let shared_match = Rc::new(dbg!(one_match));
+        self.game.progress_game(shared_match.clone());
+        self.add_pattern(guess.state, shared_match.clone());
+        return Some(shared_match);
     }
     fn valid_word(&mut self, table_index: usize) -> bool {
         if !self.valid_table[table_index] {
             return false;
         }
         let word = &self.game.candidates[table_index];
-        let slice = word.as_bytes();
+        for i in self.patterns.iter() {
+            if !self.try_match(word, i) {
+                self.valid_table[table_index] = false;
+                return false;
+            }
+        }
 
-        for index in 0..5 {
-            if self.intent[index] != '*' && self.intent[index] != slice[index] as char {
-                self.valid_table[table_index] = false;
-                return false;
-            }
-        }
-        for index in 0..5 {
-            for i in self.nonexist[index].iter() {
-                if slice[index] as char == *i {
-                    self.valid_table[table_index] = false;
-                    return false;
-                }
-            }
-        }
-        for i in self.exist.iter() {
-            if !word.contains(*i) {
-                self.valid_table[table_index] = false;
-                return false;
-            }
-        }
         return true;
     }
+    pub fn reset(&mut self) {
+        self.game.reset();
+        self.valid_table = vec![false; self.game.candidates.len()];
+        self.patterns = Vec::new();
+    }
+
     fn calculate_score(&mut self, table_index: usize) -> f64 {
-        let word = self.game.candidates[table_index].clone();
+        let word = Rc::new(self.game.candidates[table_index].clone());
+
+        let mut score = 0.0;
+        let patterns = generate_pattern(word.clone());
         let mut total = 0;
-        let mut sum = [0; 5];
-        for i in 0..self.game.candidates.len() {
-            let can = &self.game.candidates[i].clone();
-            if self.valid_word(i) {
+        let mut pattern_matched = vec![0; 243];
+        for j in 0..self.game.candidates.len() {
+            if self.valid_word(j) {
                 total += 1;
-                for j in 0..5 {
-                    if can.as_bytes()[j] == word.as_bytes()[j] {
-                        sum[j] += 1;
+                for i in 0..243 {
+                    if self.try_match(&self.game.candidates[j], &patterns[i]) {
+                        pattern_matched[i] += 1;
                     }
                 }
             }
         }
-        let mut p = 0.0;
-        for i in 0..5 {
-            if sum[i] == total {
-                p += 100.0;
-            } else {
-                p += f64::log2((total as f64) / ((total - sum[i]) as f64));
+        for i in 0..243 {
+            if pattern_matched[i] != 0 {
+                let p = pattern_matched[i] as f64 / total as f64;
+                score += 0.0 - p * p.log2();
             }
         }
 
-        return p;
+        return score;
     }
+    fn try_match(&self, word: &String, pattern: &Pattern) -> bool {
+        let mut nonexist = ['*' as u8; 5];
+        let pattern_bytes = pattern.chars.as_bytes();
+        let word_bytes = word.as_bytes();
+        for i in 0..5 {
+            if pattern.state[i] == GuessState::Correct {
+                if word_bytes[i] != pattern_bytes[i] {
+                    return false;
+                }
+            } else if pattern.state[i] == GuessState::Wrong {
+                nonexist[i] = pattern_bytes[i];
+            }
+        }
+        for i in 0..5 {
+            if pattern.state[i] == GuessState::Correct {
+                continue;
+            }
+            for j in nonexist.iter() {
+                if word_bytes[i] == *j {
+                    return false;
+                }
+            }
+            if pattern.state[i] == GuessState::Misplace {
+                if word_bytes[i] == pattern_bytes[i] {
+                    return false;
+                } else {
+                    if !word.contains(pattern_bytes[i] as char) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    fn add_pattern(&mut self, word: String, one_match: Rc<Match>) {
+        let boxed: Rc<String> = Rc::new(word);
+        self.patterns.push(Pattern {
+            chars: boxed.clone(),
+            state: [
+                one_match.states[0],
+                one_match.states[1],
+                one_match.states[2],
+                one_match.states[3],
+                one_match.states[4],
+            ],
+        });
+    }
+}
+fn generate_pattern(word: Rc<String>) -> Vec<Pattern> {
+    let mut result: Vec<Pattern> = Vec::new();
+    let boxed = word;
+    result.push(Pattern {
+        chars: boxed.clone(),
+        state: [
+            GuessState::Wrong,
+            GuessState::Wrong,
+            GuessState::Wrong,
+            GuessState::Wrong,
+            GuessState::Wrong,
+        ],
+    });
+    result = result
+        .into_iter()
+        .flat_map(|mut x| {
+            let mut new_vec = Vec::new();
+            new_vec.push(x.clone());
+            x.state[0] = GuessState::Misplace;
+            new_vec.push(x.clone());
+            x.state[0] = GuessState::Correct;
+            new_vec.push(x);
+            new_vec
+        })
+        .flat_map(|mut x| {
+            let mut new_vec = Vec::new();
+            new_vec.push(x.clone());
+            x.state[1] = GuessState::Misplace;
+            new_vec.push(x.clone());
+            x.state[1] = GuessState::Correct;
+            new_vec.push(x);
+            new_vec
+        })
+        .flat_map(|mut x| {
+            let mut new_vec = Vec::new();
+            new_vec.push(x.clone());
+            x.state[2] = GuessState::Misplace;
+            new_vec.push(x.clone());
+            x.state[2] = GuessState::Correct;
+            new_vec.push(x);
+            new_vec
+        })
+        .flat_map(|mut x| {
+            let mut new_vec = Vec::new();
+            new_vec.push(x.clone());
+            x.state[3] = GuessState::Misplace;
+            new_vec.push(x.clone());
+            x.state[3] = GuessState::Correct;
+            new_vec.push(x);
+            new_vec
+        })
+        .flat_map(|mut x| {
+            let mut new_vec = Vec::new();
+            new_vec.push(x.clone());
+            x.state[4] = GuessState::Misplace;
+            new_vec.push(x.clone());
+            x.state[4] = GuessState::Correct;
+            new_vec.push(x);
+            new_vec
+        })
+        .collect();
+    assert_eq!(result.len(), 243);
+    return result;
 }

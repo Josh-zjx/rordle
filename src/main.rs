@@ -5,14 +5,15 @@ use solver::*;
 
 fn main() -> () {
     let mut sum = 0;
-    for _ in 0..30 {
-        let mut game = Game::new();
-        let mut solver = Solver::bind(&mut game);
+    let test_run = 10;
+    for _ in 0..test_run {
+        let game = Game::new();
+        let mut solver = Solver::bind(game);
         let mut count = 0;
         loop {
             count += 1;
             let guess = solver.new_guess();
-            let one_match = solver.try_guess(&guess);
+            let one_match = solver.try_guess(guess);
             match one_match {
                 Some(one) => {
                     if one.is_correct() {
@@ -26,7 +27,7 @@ fn main() -> () {
         sum += count;
     }
     println!("Total attempts: {:}", sum);
-    println!("Average attempts: {:}", sum as f64 / 30.);
+    println!("Average attempts: {:}", sum as f64 / test_run as f64);
 }
 /*
 use bevy::text::Text2dBounds;
