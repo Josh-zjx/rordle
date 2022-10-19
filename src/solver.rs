@@ -1,32 +1,76 @@
 use super::game::*;
+use std::io::prelude::*;
 use std::{collections::HashSet, rc::Rc};
 
+const cache: bool = true;
 #[derive(Debug)]
 pub struct Solver {
     game: Game,
     patterns: Vec<Pattern>,
     valid_table: Vec<bool>,
+    second_cache: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Pattern {
-    chars: Rc<String>,
-    state: [GuessState; 5],
+    pub chars: Rc<String>,
+    pub state: [GuessState; 5],
 }
 
 impl Solver {
+    pub fn precompute(&mut self) -> Vec<Pattern> {
+        let mut tares_cache: Vec<Pattern> = Vec::new();
+        let word = String::from("tares");
+        self.game.inc_round();
+        let patterns = generate_pattern(Rc::new(word));
+        for i in patterns {
+            let state = dbg!(i.state.clone());
+            self.patterns.push(i);
+            let new_guess = self.new_guess();
+            tares_cache.push(Pattern {
+                chars: Rc::new(new_guess.state),
+                state,
+            });
+
+            self.reset();
+        }
+        return tares_cache;
+    }
     pub fn bind(game: Game) -> Solver {
         let table_size = game.candidates.len();
+        let mut cache_strings = String::new();
+        {
+            let mut cache_file = std::fs::File::open("./data/cache").unwrap();
+            cache_file.read_to_string(&mut cache_strings).unwrap();
+        }
+        let cache_lines: Vec<String> = serde_json::from_str(&cache_strings).unwrap();
+
+        assert_eq!(cache_lines.len(), 243);
         return Solver {
             game,
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
+            second_cache: cache_lines,
         };
     }
     pub fn new_guess(&mut self) -> Guess {
         if self.game.round() == 0 {
             return Guess {
                 state: "tares".to_string(),
+            };
+        }
+        if cache && self.game.round() == 1 {
+            let mut index = 0;
+            for i in 0..5 {
+                index *= 3;
+                index += match self.patterns[0].state[i] {
+                    GuessState::Wrong => 0,
+                    GuessState::Misplace => 1,
+                    GuessState::Correct => 2,
+                }
+            }
+            return Guess {
+                state: self.second_cache[index].to_string(),
             };
         }
         let mut score = -1.0;
@@ -57,13 +101,15 @@ impl Solver {
         return Some(shared_match);
     }
     fn valid_word(&mut self, table_index: usize) -> bool {
+        /*
         if !self.valid_table[table_index] {
             return false;
         }
+            */
         let word = &self.game.candidates[table_index];
         for i in self.patterns.iter() {
             if !self.try_match(word, i) {
-                self.valid_table[table_index] = false;
+                //self.valid_table[table_index] = false;
                 return false;
             }
         }
@@ -72,7 +118,7 @@ impl Solver {
     }
     pub fn reset(&mut self) {
         self.game.reset();
-        self.valid_table = vec![false; self.game.candidates.len()];
+        self.valid_table = vec![true; self.game.candidates.len()];
         self.patterns = Vec::new();
     }
 
@@ -103,7 +149,7 @@ impl Solver {
         return score;
     }
     fn try_match(&self, word: &String, pattern: &Pattern) -> bool {
-        let mut nonexist = ['*' as u8; 5];
+        let mut nonexist: [u8; 5] = [0; 5];
         let pattern_bytes = pattern.chars.as_bytes();
         let word_bytes = word.as_bytes();
         for i in 0..5 {

@@ -5,11 +5,12 @@ use solver::*;
 
 fn main() -> () {
     let mut sum = 0;
-    let test_run = 10;
+    let test_run = 100;
     for _ in 0..test_run {
         let game = Game::new();
         let mut solver = Solver::bind(game);
         let mut count = 0;
+
         loop {
             count += 1;
             let guess = solver.new_guess();
