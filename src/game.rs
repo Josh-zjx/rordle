@@ -1,6 +1,6 @@
 use bevy::prelude::Component;
 use std::io::prelude::*;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GuessState {
@@ -12,6 +12,7 @@ pub enum GuessState {
 #[derive(Debug, Component)]
 pub struct Game {
     answer: String,
+    answer_index: usize,
     pub answers: Vec<String>,
     pub candidates: Vec<String>,
     round: usize,
@@ -42,12 +43,20 @@ impl Game {
         candidate_vec.append(&mut (answers.clone()));
         let new_game = Game {
             answer,
+            answer_index: index,
             answers,
             candidates: candidate_vec,
             round: 0,
             state: GameState::On,
         };
         return new_game;
+    }
+    pub fn set_game_with_answer_index(&mut self, index: usize) {
+        assert!(index < self.answers.len());
+        self.answer_index = index;
+        self.answer = self.answers[self.answer_index].clone();
+        self.round = 0;
+        self.state = GameState::On;
     }
     pub fn grade_guess(&self, guess: &Guess) -> Match {
         let mut one_match = Match::new();
@@ -82,7 +91,7 @@ impl Game {
             return false;
         }
     }
-    pub fn progress_game(&mut self, one_match: Rc<Match>) {
+    pub fn progress_game(&mut self, one_match: Arc<Match>) {
         if one_match.is_correct() {
             self.state = GameState::Correct;
             return;

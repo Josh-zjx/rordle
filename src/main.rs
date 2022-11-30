@@ -2,22 +2,30 @@ pub mod game;
 pub mod solver;
 use game::*;
 use solver::*;
+use std::sync::Arc;
 
 fn main() -> () {
     let mut sum = 0;
-    let test_run = 100;
-    for _ in 0..test_run {
-        let game = Game::new();
-        let mut solver = Solver::bind(game);
+    let mut fail = 0;
+    let test_run = 10;
+    let mut game = Game::new();
+    let mut solver = Solver::bind(&game);
+    let total_run = game.answers.len();
+    for i in 0..total_run {
+        game.set_game_with_answer_index(i);
+        solver.reset();
         let mut count = 0;
 
         loop {
             count += 1;
-            let guess = solver.new_guess();
-            let one_match = solver.try_guess(guess);
+            let guess = solver.new_guess(game.round() as u8);
+            let one_match = solver.try_guess(guess, &mut game);
             match one_match {
                 Some(one) => {
                     if one.is_correct() {
+                        if count > 6 {
+                            fail += 1;
+                        }
                         break;
                     }
                 }
@@ -28,6 +36,7 @@ fn main() -> () {
         sum += count;
     }
     println!("Total attempts: {:}", sum);
+    println!("Total failures: {:}", fail);
     println!("Average attempts: {:}", sum as f64 / test_run as f64);
 }
 /*
@@ -44,12 +53,15 @@ const YELLOW: Color = Color::rgb(0.75, 0.75, 0.25);
 
 fn check_guess(
     mut game_query: Query<&mut Game, With<Game>>,
+    mut solver_query: Query<&mut Solver, With<Solver>>,
     mut guess_query: Query<&mut Guess, With<Guess>>,
     mut board_query: Query<(&mut Sprite, &Row, &Col), (With<Sprite>, With<Row>, With<Col>)>,
     mut toast: Query<&mut Text, (With<Toast>, With<Text>)>,
     mut status: Query<&mut Text, (Without<Toast>, With<StatusBoard>)>,
+    mut hint: Query<&mut Text, (With<Hint>, Without<StatusBoard>, Without<Toast>)>,
 ) {
     let mut game = game_query.single_mut();
+    let mut solver = solver_query.single_mut();
 
     // Only execute when user submit a full guess
     if game.state == GameState::ReadyForCheck {
@@ -93,7 +105,10 @@ fn check_guess(
         }
         current_status.sections[0].value = new_string;
         // Check correctness
-        game.progress_game(one_match);
+        game.progress_game(Arc::new(one_match.clone()));
+        solver.add_pattern(guess.state.clone(), Arc::new(one_match.clone()));
+        solver.current_candidate = solver.new_guess(game.round() as u8).state;
+        hint.single_mut().sections[0].value = solver.current_candidate.clone();
         // Clean guess
         guess.state = String::new();
     }
@@ -247,7 +262,7 @@ fn key_input(
 }
 
 /// Main Entry
-fn _main() -> () {
+fn main() -> () {
     App::new()
         .insert_resource(WindowDescriptor {
             title: "Rordle".to_string(),
@@ -271,6 +286,7 @@ fn _main() -> () {
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Read data to build answer set and candidate set
     commands.spawn().insert(Game::new());
+    commands.spawn().insert(Solver::bind(&Game::new()));
     // Camera
     commands.spawn_bundle(Camera2dBundle::default());
     // Initialize game state
@@ -346,6 +362,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         })
         .insert(StatusBoard);
+    //
+    // Add the game state board
+    commands
+        .spawn_bundle(Text2dBundle {
+            text: Text::from_section("*****", text_style.clone()),
+            text_2d_bounds: Text2dBounds {
+                size: BOX_SIZE * 2.0,
+            },
+            transform: Transform::from_xyz(-150.0, 100.0, 1.0),
+            ..default()
+        })
+        .insert(Hint);
 }
 
 #[derive(Component)]
@@ -353,6 +381,9 @@ struct Toast;
 
 #[derive(Component)]
 struct StatusBoard;
+
+#[derive(Component)]
+struct Hint;
 
 #[derive(Component)]
 struct Col {

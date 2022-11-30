@@ -1,27 +1,29 @@
 use super::game::*;
+use bevy::prelude::Component;
 use std::io::prelude::*;
-use std::{collections::HashSet, rc::Rc};
+use std::sync::Arc;
 
-const cache: bool = true;
-#[derive(Debug)]
+const CACHE: bool = true;
+#[derive(Debug, Component)]
 pub struct Solver {
-    game: Game,
     patterns: Vec<Pattern>,
     valid_table: Vec<bool>,
     second_cache: Vec<String>,
+    candidates: Vec<String>,
+    pub current_candidate: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct Pattern {
-    pub chars: Rc<String>,
+    pub chars: Arc<String>,
     pub state: [GuessState; 5],
 }
 
 impl Solver {
-    pub fn precompute(&mut self) -> Vec<Pattern> {
+    /*
+    pub fn _precompute(&mut self) -> Vec<Pattern> {
         let mut tares_cache: Vec<Pattern> = Vec::new();
         let word = String::from("tares");
-        self.game.inc_round();
         let patterns = generate_pattern(Rc::new(word));
         for i in patterns {
             let state = dbg!(i.state.clone());
@@ -36,7 +38,8 @@ impl Solver {
         }
         return tares_cache;
     }
-    pub fn bind(game: Game) -> Solver {
+    */
+    pub fn bind(game: &Game) -> Solver {
         let table_size = game.candidates.len();
         let mut cache_strings = String::new();
         {
@@ -47,19 +50,20 @@ impl Solver {
 
         assert_eq!(cache_lines.len(), 243);
         return Solver {
-            game,
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
             second_cache: cache_lines,
+            candidates: game.candidates.clone(),
+            current_candidate: String::new(),
         };
     }
-    pub fn new_guess(&mut self) -> Guess {
-        if self.game.round() == 0 {
+    pub fn new_guess(&mut self, round: u8) -> Guess {
+        if round == 0 {
             return Guess {
                 state: "tares".to_string(),
             };
         }
-        if cache && self.game.round() == 1 {
+        if CACHE && round == 1 {
             let mut index = 0;
             for i in 0..5 {
                 index *= 3;
@@ -75,7 +79,7 @@ impl Solver {
         }
         let mut score = -1.0;
         let mut index = 0;
-        for i in 0..self.game.candidates.len() {
+        for i in 0..self.candidates.len() {
             let temp = self.valid_word(i);
             if temp {
                 let new_score = self.calculate_score(i);
@@ -87,16 +91,16 @@ impl Solver {
         }
         dbg!(score);
         return Guess {
-            state: dbg!(self.game.candidates[index].clone()),
+            state: dbg!(self.candidates[index].clone()),
         };
     }
-    pub fn try_guess(&mut self, guess: Guess) -> Option<Rc<Match>> {
-        if !self.game.check_valid_guess(&guess) {
+    pub fn try_guess(&mut self, guess: Guess, game: &mut Game) -> Option<Arc<Match>> {
+        if !game.check_valid_guess(&guess) {
             return None;
         }
-        let one_match = self.game.grade_guess(dbg!(&guess));
-        let shared_match = Rc::new(dbg!(one_match));
-        self.game.progress_game(shared_match.clone());
+        let one_match = game.grade_guess(dbg!(&guess));
+        let shared_match = Arc::new(dbg!(one_match));
+        game.progress_game(shared_match.clone());
         self.add_pattern(guess.state, shared_match.clone());
         return Some(shared_match);
     }
@@ -106,9 +110,9 @@ impl Solver {
             return false;
         }
             */
-        let word = &self.game.candidates[table_index];
+        let word = &self.candidates[table_index];
         for i in self.patterns.iter() {
-            if !self.try_match(word, i) {
+            if !self.try_match(&word, i) {
                 //self.valid_table[table_index] = false;
                 return false;
             }
@@ -117,23 +121,23 @@ impl Solver {
         return true;
     }
     pub fn reset(&mut self) {
-        self.game.reset();
-        self.valid_table = vec![true; self.game.candidates.len()];
+        self.valid_table = vec![true; self.candidates.len()];
         self.patterns = Vec::new();
+        self.current_candidate = String::new();
     }
 
     fn calculate_score(&mut self, table_index: usize) -> f64 {
-        let word = Rc::new(self.game.candidates[table_index].clone());
+        let word = Arc::new(self.candidates[table_index].clone());
 
         let mut score = 0.0;
         let patterns = generate_pattern(word.clone());
         let mut total = 0;
         let mut pattern_matched = vec![0; 243];
-        for j in 0..self.game.candidates.len() {
+        for j in 0..self.candidates.len() {
             if self.valid_word(j) {
                 total += 1;
                 for i in 0..243 {
-                    if self.try_match(&self.game.candidates[j], &patterns[i]) {
+                    if self.try_match(&self.candidates[j], &patterns[i]) {
                         pattern_matched[i] += 1;
                     }
                 }
@@ -182,8 +186,8 @@ impl Solver {
         }
         return true;
     }
-    fn add_pattern(&mut self, word: String, one_match: Rc<Match>) {
-        let boxed: Rc<String> = Rc::new(word);
+    pub fn add_pattern(&mut self, word: String, one_match: Arc<Match>) {
+        let boxed: Arc<String> = Arc::new(word);
         self.patterns.push(Pattern {
             chars: boxed.clone(),
             state: [
@@ -196,7 +200,7 @@ impl Solver {
         });
     }
 }
-fn generate_pattern(word: Rc<String>) -> Vec<Pattern> {
+fn generate_pattern(word: Arc<String>) -> Vec<Pattern> {
     let mut result: Vec<Pattern> = Vec::new();
     let boxed = word;
     result.push(Pattern {
