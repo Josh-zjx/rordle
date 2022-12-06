@@ -7,7 +7,6 @@ use std::sync::Arc;
 fn main() -> () {
     let mut sum = 0;
     let mut fail = 0;
-    let test_run = 10;
     let mut game = Game::new();
     let mut solver = Solver::bind(&game);
     let total_run = game.answers.len();
@@ -37,7 +36,7 @@ fn main() -> () {
     }
     println!("Total attempts: {:}", sum);
     println!("Total failures: {:}", fail);
-    println!("Average attempts: {:}", sum as f64 / test_run as f64);
+    println!("Average attempts: {:}", sum as f64 / total_run as f64);
 }
 /*
 use bevy::text::Text2dBounds;

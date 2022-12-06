@@ -89,17 +89,16 @@ impl Solver {
                 }
             }
         }
-        dbg!(score);
         return Guess {
-            state: dbg!(self.candidates[index].clone()),
+            state: self.candidates[index].clone(),
         };
     }
     pub fn try_guess(&mut self, guess: Guess, game: &mut Game) -> Option<Arc<Match>> {
         if !game.check_valid_guess(&guess) {
             return None;
         }
-        let one_match = game.grade_guess(dbg!(&guess));
-        let shared_match = Arc::new(dbg!(one_match));
+        let one_match = game.grade_guess(&guess);
+        let shared_match = Arc::new(one_match);
         game.progress_game(shared_match.clone());
         self.add_pattern(guess.state, shared_match.clone());
         return Some(shared_match);
