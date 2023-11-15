@@ -2,14 +2,59 @@ pub mod game;
 pub mod solver;
 use game::*;
 use solver::*;
-
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn main() -> () {
-    let mut sum = 0;
-    let mut fail = 0;
-    let mut game = Game::new();
-    let mut solver = Solver::bind(&game);
-    let total_run = game.answers.len();
+    let sum = Arc::new(Mutex::new(0));
+    let fail = Arc::new(Mutex::new(0));
+    //let mut game = Game::new();
+    //let mut solver = Solver::bind(&game);
+    let total_thread = 10;
+    let mut handlers = Vec::new();
+    for t in 0..total_thread {
+        let sum = Arc::clone(&sum);
+        let fail = Arc::clone(&fail);
+        let handler = thread::spawn(move || {
+            let mut game = Game::new();
+            let mut solver = Solver::bind(&game);
+            let total_run = game.answers.len();
+            let offset = t;
+            for i in 0..total_run {
+                if i % total_thread == offset {
+                    game.set_game_with_answer_index(i);
+                    solver.reset();
+                    let mut count = 0;
+
+                    loop {
+                        count += 1;
+                        let guess = solver.new_guess(game.round() as u8);
+                        let one_match = solver.try_guess(guess, &mut game);
+                        match one_match {
+                            Some(one) => {
+                                if one.is_correct() {
+                                    if count > 6 {
+                                        let mut fail_handler = fail.lock().unwrap();
+                                        *fail_handler += 1;
+                                    }
+                                    break;
+                                }
+                            }
+                            None => (),
+                        }
+                    }
+                    //println!("{:}", count);
+                    let mut sum_handler = sum.lock().unwrap();
+                    *sum_handler += count;
+                }
+            }
+        });
+        handlers.push(handler);
+    }
+    for h in handlers.into_iter() {
+        h.join().unwrap();
+    }
+    /*
     for i in 0..total_run {
         game.set_game_with_answer_index(i);
         solver.reset();
@@ -34,9 +79,10 @@ fn main() -> () {
         println!("{:}", count);
         sum += count;
     }
-    println!("Total attempts: {:}", sum);
-    println!("Total failures: {:}", fail);
-    println!("Average attempts: {:}", sum as f64 / total_run as f64);
+    */
+    println!("Total attempts: {:}", *sum.lock().unwrap());
+    println!("Total failures: {:}", *fail.lock().unwrap());
+    //println!("Average attempts: {:}", sum as f64 / total_run as f64);
 }
 /*
 use bevy::text::Text2dBounds;
