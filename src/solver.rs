@@ -1,4 +1,5 @@
 use super::game::*;
+use std::collections::{hash_map, BTreeSet, HashMap};
 use std::io::prelude::*;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ pub struct Solver {
     pub current_candidate: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pattern {
     pub chars: Arc<String>,
     pub state: [GuessState; 5],
@@ -28,7 +29,6 @@ impl Solver {
         }
         let cache_lines: Vec<String> = serde_json::from_str(&cache_strings).unwrap();
 
-        assert_eq!(cache_lines.len(), 243);
         Solver {
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
@@ -37,41 +37,39 @@ impl Solver {
             current_candidate: String::new(),
         }
     }
-    pub fn new_guess(&self, round: u8) -> Guess {
+    pub fn new_guess(&self, round: u8) -> (Guess, f64) {
         if round == 0 {
-            return Guess {
-                state: "tares".to_string(),
-            };
-        }
-        if CACHE && round == 1 {
-            let mut index = 0;
-            for i in 0..5 {
-                index *= 3;
-                index += match self.patterns[0].state[i] {
-                    GuessState::Wrong => 0,
-                    GuessState::Misplace => 1,
-                    GuessState::Correct => 2,
-                }
-            }
-            return Guess {
-                state: self.second_cache[index].to_string(),
-            };
+            return (
+                Guess {
+                    state: "tares".to_string(),
+                },
+                0.0,
+            );
         }
         let mut score = -1.0;
         let mut index = 0;
+        let mut rank: Vec<(f64, &str)> = vec![];
         for i in 0..self.candidates.len() {
             let temp = self.valid_word(i);
             if temp {
                 let new_score = self.calculate_score(i);
+                rank.push((-new_score, self.candidates[i].as_str()));
                 if new_score > score {
                     score = new_score;
                     index = i;
                 }
             }
         }
-        Guess {
-            state: self.candidates[index].clone(),
+        rank.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for (x, y) in rank.into_iter().take(5) {
+            println!("{}: {}", y, -x);
         }
+        (
+            Guess {
+                state: self.candidates[index].clone(),
+            },
+            score,
+        )
     }
     pub fn try_guess(&mut self, guess: Guess, game: &mut Game) -> Option<Arc<Match>> {
         if !game.check_valid_guess(&guess) {
@@ -105,18 +103,21 @@ impl Solver {
         let mut score = 0.0;
         let patterns = generate_pattern(word.clone());
         let mut total = 0;
-        let mut pattern_matched = vec![0; 243];
+        let mut pattern_matched = vec![0; patterns.len()];
         for j in 0..self.candidates.len() {
+            if j == table_index {
+                continue;
+            }
             if self.valid_word(j) {
                 total += 1;
-                for i in 0..243 {
+                for i in 0..patterns.len() {
                     if self.try_match(&self.candidates[j], &patterns[i]) {
                         pattern_matched[i] += 1;
                     }
                 }
             }
         }
-        for i in 0..243 {
+        for i in 0..patterns.len() {
             if pattern_matched[i] != 0 {
                 let p = pattern_matched[i] as f64 / total as f64;
                 score += 0.0 - p * p.log2();
@@ -130,30 +131,38 @@ impl Solver {
     ///
     ///
     fn try_match(&self, word: &String, pattern: &Pattern) -> bool {
-        let mut nonexist: [u8; 5] = [0; 5];
+        let mut nonexist = BTreeSet::new();
+        let mut exist = BTreeSet::new();
         let pattern_bytes = pattern.chars.as_bytes();
         let word_bytes = word.as_bytes();
+        let mut word_set: BTreeSet<u8> = BTreeSet::new();
+        word_set.extend(word_bytes.iter());
+
         for i in 0..5 {
             if pattern.state[i] == GuessState::Correct {
                 if word_bytes[i] != pattern_bytes[i] {
+                    //println!("Correct mismatch");
                     return false;
                 }
             } else if pattern.state[i] == GuessState::Wrong {
-                nonexist[i] = pattern_bytes[i];
-            }
-        }
-        for i in 0..5 {
-            if pattern.state[i] == GuessState::Correct {
-                continue;
-            }
-            for j in nonexist.iter() {
-                if word_bytes[i] == *j {
+                if word_bytes[i] == pattern_bytes[i] {
                     return false;
                 }
+                nonexist.insert(pattern_bytes[i]);
+            } else if pattern.state[i] == GuessState::Misplace {
+                if word_bytes[i] == pattern_bytes[i] {
+                    return false;
+                }
+                exist.insert(pattern_bytes[i]);
             }
-            if pattern.state[i] == GuessState::Misplace && word_bytes[i] == pattern_bytes[i]
-                || !word.contains(pattern_bytes[i] as char)
-            {
+        }
+        for i in nonexist.iter() {
+            if word_set.contains(i) {
+                return false;
+            }
+        }
+        for i in exist.iter() {
+            if !word_set.contains(i) {
                 return false;
             }
         }
@@ -233,7 +242,20 @@ fn generate_pattern(word: Arc<String>) -> Vec<Pattern> {
             new_vec.push(x);
             new_vec
         })
+        .filter(|x| {
+            let mut nonexist = HashMap::<_, GuessState>::new();
+            for i in 0..5 {
+                let temp = x.chars.chars().nth(i).unwrap();
+                if nonexist.contains_key(&temp) {
+                    if *nonexist.get(&temp).unwrap() != x.state[i] {
+                        return false;
+                    }
+                } else {
+                    nonexist.insert(temp.clone(), x.state[i]);
+                }
+            }
+            true
+        })
         .collect();
-    assert_eq!(result.len(), 243);
     return result;
 }

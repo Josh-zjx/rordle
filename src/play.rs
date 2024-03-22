@@ -174,9 +174,9 @@ export component MainWindow inherits Window {
         ];
 
         Rectangle {
-            x: 180px;
+            x: 80px;
             y:450px;
-            width:50px;
+            width:200px;
             height:50px;
             background:#ffffff;
             Text {

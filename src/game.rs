@@ -1,7 +1,8 @@
+use std::collections::BTreeSet;
 use std::io::prelude::*;
 use std::sync::Arc;
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 pub enum GuessState {
     Wrong,
     Misplace,
@@ -66,23 +67,18 @@ impl Game {
         let mut one_match = Match::new();
         // Correct pass
         let word = &guess.state;
+        let mut char_set: BTreeSet<u8> = BTreeSet::new();
+        let answer_bytes = self.answer.as_bytes();
+        let word_bytes = word.as_bytes();
+        char_set.extend(answer_bytes.iter());
+
         for i in 0..5 {
-            if (*word).as_bytes()[i] == self.answer.as_bytes()[i] {
+            if word_bytes[i] == answer_bytes[i] {
                 one_match.states[i] = GuessState::Correct;
-            }
-        }
-        // Wrong pass
-        for i in 0..5 {
-            if word.as_bytes()[i] != self.answer.as_bytes()[i] {
-                for j in 0..5 {
-                    if one_match.states[j] == GuessState::Correct {
-                        continue;
-                    }
-                    if word.as_bytes()[i] == self.answer.as_bytes()[j] {
-                        one_match.states[i] = GuessState::Misplace;
-                        break;
-                    }
-                }
+            } else if char_set.contains(&word_bytes[i]) {
+                one_match.states[i] = GuessState::Misplace;
+            } else {
+                one_match.states[i] = GuessState::Wrong;
             }
         }
         one_match
