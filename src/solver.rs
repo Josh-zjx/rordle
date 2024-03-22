@@ -20,25 +20,6 @@ pub struct Pattern {
 }
 
 impl Solver {
-    /*
-    pub fn _precompute(&mut self) -> Vec<Pattern> {
-        let mut tares_cache: Vec<Pattern> = Vec::new();
-        let word = String::from("tares");
-        let patterns = generate_pattern(Rc::new(word));
-        for i in patterns {
-            let state = dbg!(i.state.clone());
-            self.patterns.push(i);
-            let new_guess = self.new_guess();
-            tares_cache.push(Pattern {
-                chars: Rc::new(new_guess.state),
-                state,
-            });
-
-            self.reset();
-        }
-        return tares_cache;
-    }
-    */
     pub fn bind(game: &Game) -> Solver {
         let table_size = game.candidates.len();
         let mut cache_strings = String::new();
@@ -57,7 +38,7 @@ impl Solver {
             current_candidate: String::new(),
         };
     }
-    pub fn new_guess(&mut self, round: u8) -> Guess {
+    pub fn new_guess(&self, round: u8) -> Guess {
         if round == 0 {
             return Guess {
                 state: "tares".to_string(),
@@ -103,16 +84,10 @@ impl Solver {
         self.add_pattern(guess.state, shared_match.clone());
         return Some(shared_match);
     }
-    fn valid_word(&mut self, table_index: usize) -> bool {
-        /*
-        if !self.valid_table[table_index] {
-            return false;
-        }
-            */
+    fn valid_word(&self, table_index: usize) -> bool {
         let word = &self.candidates[table_index];
         for i in self.patterns.iter() {
             if !self.try_match(&word, i) {
-                //self.valid_table[table_index] = false;
                 return false;
             }
         }
@@ -125,7 +100,7 @@ impl Solver {
         self.current_candidate = String::new();
     }
 
-    fn calculate_score(&mut self, table_index: usize) -> f64 {
+    fn calculate_score(&self, table_index: usize) -> f64 {
         let word = Arc::new(self.candidates[table_index].clone());
 
         let mut score = 0.0;
@@ -151,6 +126,10 @@ impl Solver {
 
         return score;
     }
+
+    /// check whether the guess word is compatible with a match pattern
+    ///
+    ///
     fn try_match(&self, word: &String, pattern: &Pattern) -> bool {
         let mut nonexist: [u8; 5] = [0; 5];
         let pattern_bytes = pattern.chars.as_bytes();

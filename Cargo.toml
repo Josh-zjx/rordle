@@ -18,3 +18,10 @@ lto = true
 panic = "abort"
 
 
+[[bin]]
+name = "game"
+path = "src/play.rs"
+
+[[bin]]
+name = "solver"
+path = "src/roget.rs"

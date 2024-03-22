@@ -9,7 +9,7 @@ use std::thread;
 fn main() -> () {
     use slint::Model;
 
-    let mut game = std::rc::Rc::new(std::sync::Mutex::new(Game::new()));
+    let game = std::rc::Rc::new(std::sync::Mutex::new(Game::new()));
 
     let main_window = MainWindow::new().unwrap();
     let main_window_weak = main_window.as_weak().clone();
@@ -49,7 +49,6 @@ fn main() -> () {
                     new_state.nonexist = false;
                     new_state.correct = false;
                     new_state.misplaced = false;
-                    println!("New state: {:?}", new_state);
                     match res.states[i] {
                         GuessState::Wrong => {
                             new_state.nonexist = true;
@@ -74,7 +73,7 @@ fn main() -> () {
                 main_window_weak.unwrap().set_invalid(true);
             }
 
-            println!("Key Event Enter");
+            //println!("Key Event Enter");
         } else if &text as &str == "\u{8}" {
             let level = main_window_weak.unwrap().get_level();
             let mut index = main_window_weak.unwrap().get_index();
@@ -85,9 +84,9 @@ fn main() -> () {
             }
             main_window_weak.unwrap().set_index(index);
             main_window_weak.unwrap().set_invalid(false);
-            println!("Key Event Backspace");
+            //println!("Key Event Backspace");
         } else if text.chars().all(char::is_alphabetic) {
-            println!("Key Event Input Got {:?}", text.to_string().to_uppercase());
+            //println!("Key Event Input Got {:?}", text.to_string().to_uppercase());
             let level = main_window_weak.unwrap().get_level();
             let mut index = main_window_weak.unwrap().get_index();
             if index < 5 {
@@ -100,7 +99,7 @@ fn main() -> () {
             }
             main_window_weak.unwrap().set_index(index);
         } else {
-            println!("Non supported char");
+            //println!("Non supported char");
         }
     });
     //let char_items: Vec<CharItem> = main_window.get_char_items().iter().collect();
