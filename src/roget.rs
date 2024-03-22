@@ -2,11 +2,10 @@ pub mod game;
 pub mod solver;
 use game::*;
 use solver::*;
-use std::str::Chars;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-fn main() -> () {
+fn main() {
     let sum = Arc::new(Mutex::new(0));
     let fail = Arc::new(Mutex::new(0));
     let total_thread = 10;
@@ -29,17 +28,13 @@ fn main() -> () {
                         count += 1;
                         let guess = solver.new_guess(game.round() as u8);
                         let one_match = solver.try_guess(guess, &mut game);
-                        match one_match {
-                            Some(one) => {
-                                if one.is_correct() {
-                                    if count > 6 {
-                                        let mut fail_handler = fail.lock().unwrap();
-                                        *fail_handler += 1;
-                                    }
-                                    break;
-                                }
+
+                        if one_match.is_some() && one_match.unwrap().is_correct() {
+                            if count > 6 {
+                                let mut fail_handler = fail.lock().unwrap();
+                                *fail_handler += 1;
                             }
-                            None => (),
+                            break;
                         }
                     }
                     let mut sum_handler = sum.lock().unwrap();

@@ -1,20 +1,18 @@
 pub mod game;
 pub mod solver;
 use game::*;
-use solver::*;
-use std::str::Chars;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
-fn main() -> () {
+fn main() {
     use slint::Model;
 
-    let game = std::rc::Rc::new(std::sync::Mutex::new(Game::new()));
+    let game = Rc::new(Mutex::new(Game::new()));
 
     let main_window = MainWindow::new().unwrap();
     let main_window_weak = main_window.as_weak().clone();
     let new_data = vec![empty_charblock(); 30];
-    let new_data = std::rc::Rc::new(slint::VecModel::from(new_data));
+    let new_data = Rc::new(slint::VecModel::from(new_data));
     main_window_weak
         .unwrap()
         .set_char_items(new_data.clone().into());
@@ -72,8 +70,6 @@ fn main() -> () {
                 println!("Invalid Guess");
                 main_window_weak.unwrap().set_invalid(true);
             }
-
-            //println!("Key Event Enter");
         } else if &text as &str == "\u{8}" {
             let level = main_window_weak.unwrap().get_level();
             let mut index = main_window_weak.unwrap().get_index();
@@ -84,9 +80,7 @@ fn main() -> () {
             }
             main_window_weak.unwrap().set_index(index);
             main_window_weak.unwrap().set_invalid(false);
-            //println!("Key Event Backspace");
         } else if text.chars().all(char::is_alphabetic) {
-            //println!("Key Event Input Got {:?}", text.to_string().to_uppercase());
             let level = main_window_weak.unwrap().get_level();
             let mut index = main_window_weak.unwrap().get_index();
             if index < 5 {
@@ -98,14 +92,9 @@ fn main() -> () {
                 main_window_weak.unwrap().set_invalid(false);
             }
             main_window_weak.unwrap().set_index(index);
-        } else {
-            //println!("Non supported char");
         }
     });
-    //let char_items: Vec<CharItem> = main_window.get_char_items().iter().collect();
     let main_window_weak = main_window.as_weak().clone();
-    //
-    //Initialize
 
     // Callback function on reset games
     let char_items_handler = new_data.clone();
@@ -184,7 +173,6 @@ export component MainWindow inherits Window {
         in property <[CharItem]> char_items:[
         ];
 
-
         Rectangle {
             x: 180px;
             y:450px;
@@ -206,60 +194,4 @@ export component MainWindow inherits Window {
             misplaced:tile.misplaced;
         }
 
-
 }}
-/*
-fn main() -> () {
-    let sum = Arc::new(Mutex::new(0));
-    let fail = Arc::new(Mutex::new(0));
-    //let mut game = Game::new();
-    //let mut solver = Solver::bind(&game);
-    let total_thread = 10;
-    let mut handlers = Vec::new();
-    for t in 0..total_thread {
-        let sum = Arc::clone(&sum);
-        let fail = Arc::clone(&fail);
-        let handler = thread::spawn(move || {
-            let mut game = Game::new();
-            let mut solver = Solver::bind(&game);
-            let total_run = game.answers.len();
-            let offset = t;
-            for i in 0..total_run {
-                if i % total_thread == offset {
-                    game.set_game_with_answer_index(i);
-                    solver.reset();
-                    let mut count = 0;
-
-                    loop {
-                        count += 1;
-                        let guess = solver.new_guess(game.round() as u8);
-                        let one_match = solver.try_guess(guess, &mut game);
-                        match one_match {
-                            Some(one) => {
-                                if one.is_correct() {
-                                    if count > 6 {
-                                        let mut fail_handler = fail.lock().unwrap();
-                                        *fail_handler += 1;
-                                    }
-                                    break;
-                                }
-                            }
-                            None => (),
-                        }
-                    }
-                    //println!("{:}", count);
-                    let mut sum_handler = sum.lock().unwrap();
-                    *sum_handler += count;
-                }
-            }
-        });
-        handlers.push(handler);
-    }
-    for h in handlers.into_iter() {
-        h.join().unwrap();
-    }
-    println!("Total attempts: {:}", *sum.lock().unwrap());
-    println!("Total failures: {:}", *fail.lock().unwrap());
-    //println!("Average attempts: {:}", sum as f64 / total_run as f64);
-}
-*/

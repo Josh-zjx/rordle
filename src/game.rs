@@ -1,4 +1,3 @@
-use bevy::prelude::Component;
 use std::io::prelude::*;
 use std::sync::Arc;
 
@@ -9,7 +8,7 @@ pub enum GuessState {
     Correct,
 }
 
-#[derive(Debug, Component)]
+#[derive(Debug)]
 pub struct Game {
     answer: String,
     answer_index: usize,
@@ -17,6 +16,11 @@ pub struct Game {
     pub candidates: Vec<String>,
     round: usize,
     pub state: GameState,
+}
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl Game {
     pub fn new() -> Game {
@@ -28,7 +32,7 @@ impl Game {
         let answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
 
         let mut index: usize = rand::random();
-        index = index % answers.len();
+        index %= answers.len();
 
         let mut candidate_strings = String::new();
         {
@@ -42,15 +46,14 @@ impl Game {
         let answer = answers[index].clone();
         println!("The answer is {}", answer);
         candidate_vec.append(&mut (answers.clone()));
-        let new_game = Game {
+        Game {
             answer,
             answer_index: index,
             answers,
             candidates: candidate_vec,
             round: 0,
             state: GameState::On,
-        };
-        return new_game;
+        }
     }
     pub fn set_game_with_answer_index(&mut self, index: usize) {
         assert!(index < self.answers.len());
@@ -82,38 +85,32 @@ impl Game {
                 }
             }
         }
-        return one_match;
+        one_match
     }
     pub fn check_valid_guess(&self, guess: &Guess) -> bool {
         let word = &guess.state;
-        if self.candidates.iter().any(|i| *i == *word) {
-            return true;
-        } else {
-            return false;
-        }
+        self.candidates.iter().any(|i| *i == *word)
     }
     pub fn progress_game(&mut self, one_match: Arc<Match>) {
         if one_match.is_correct() {
             self.state = GameState::Correct;
-            return;
         } else {
             self.state = GameState::On;
+            self.inc_round();
         }
-        // Update round statistics
-        self.inc_round();
     }
     pub fn round(&self) -> usize {
-        return self.round;
+        self.round
     }
     pub fn inc_round(&mut self) {
         self.round += 1;
     }
     pub fn answer(&self) -> String {
-        return self.answer.clone();
+        self.answer.clone()
     }
     pub fn reset(&mut self) {
         let mut index: usize = rand::random();
-        index = index % self.answers.len();
+        index %= self.answers.len();
 
         self.answer = self.answers[index].clone();
     }
@@ -123,21 +120,21 @@ impl Game {
 pub struct Match {
     pub states: [GuessState; 5],
 }
+impl Default for Match {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Match {
     pub fn is_correct(&self) -> bool {
-        if self.states[0] == GuessState::Correct
+        self.states[0] == GuessState::Correct
             && self.states[1] == GuessState::Correct
             && self.states[2] == GuessState::Correct
             && self.states[3] == GuessState::Correct
             && self.states[4] == GuessState::Correct
-        {
-            true
-        } else {
-            false
-        }
     }
     pub fn new() -> Match {
-        return Match {
+        Match {
             states: [
                 GuessState::Wrong,
                 GuessState::Wrong,
@@ -145,7 +142,7 @@ impl Match {
                 GuessState::Wrong,
                 GuessState::Wrong,
             ],
-        };
+        }
     }
 }
 #[derive(PartialEq, Debug)]
@@ -155,7 +152,7 @@ pub enum GameState {
     Correct,
     Over,
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Guess {
     pub state: String,
 }

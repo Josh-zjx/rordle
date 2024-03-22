@@ -1,10 +1,9 @@
 use super::game::*;
-use bevy::prelude::Component;
 use std::io::prelude::*;
 use std::sync::Arc;
 
 const CACHE: bool = true;
-#[derive(Debug, Component)]
+#[derive(Debug)]
 pub struct Solver {
     patterns: Vec<Pattern>,
     valid_table: Vec<bool>,
@@ -30,13 +29,13 @@ impl Solver {
         let cache_lines: Vec<String> = serde_json::from_str(&cache_strings).unwrap();
 
         assert_eq!(cache_lines.len(), 243);
-        return Solver {
+        Solver {
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
             second_cache: cache_lines,
             candidates: game.candidates.clone(),
             current_candidate: String::new(),
-        };
+        }
     }
     pub fn new_guess(&self, round: u8) -> Guess {
         if round == 0 {
@@ -70,9 +69,9 @@ impl Solver {
                 }
             }
         }
-        return Guess {
+        Guess {
             state: self.candidates[index].clone(),
-        };
+        }
     }
     pub fn try_guess(&mut self, guess: Guess, game: &mut Game) -> Option<Arc<Match>> {
         if !game.check_valid_guess(&guess) {
@@ -82,17 +81,17 @@ impl Solver {
         let shared_match = Arc::new(one_match);
         game.progress_game(shared_match.clone());
         self.add_pattern(guess.state, shared_match.clone());
-        return Some(shared_match);
+        Some(shared_match)
     }
     fn valid_word(&self, table_index: usize) -> bool {
         let word = &self.candidates[table_index];
         for i in self.patterns.iter() {
-            if !self.try_match(&word, i) {
+            if !self.try_match(word, i) {
                 return false;
             }
         }
 
-        return true;
+        true
     }
     pub fn reset(&mut self) {
         self.valid_table = vec![true; self.candidates.len()];
@@ -124,7 +123,7 @@ impl Solver {
             }
         }
 
-        return score;
+        score
     }
 
     /// check whether the guess word is compatible with a match pattern
@@ -152,17 +151,13 @@ impl Solver {
                     return false;
                 }
             }
-            if pattern.state[i] == GuessState::Misplace {
-                if word_bytes[i] == pattern_bytes[i] {
-                    return false;
-                } else {
-                    if !word.contains(pattern_bytes[i] as char) {
-                        return false;
-                    }
-                }
+            if pattern.state[i] == GuessState::Misplace && word_bytes[i] == pattern_bytes[i]
+                || !word.contains(pattern_bytes[i] as char)
+            {
+                return false;
             }
         }
-        return true;
+        true
     }
     pub fn add_pattern(&mut self, word: String, one_match: Arc<Match>) {
         let boxed: Arc<String> = Arc::new(word);
