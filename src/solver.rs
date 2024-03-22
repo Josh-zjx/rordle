@@ -243,15 +243,19 @@ fn generate_pattern(word: Arc<String>) -> Vec<Pattern> {
             new_vec
         })
         .filter(|x| {
-            let mut nonexist = HashMap::<_, GuessState>::new();
+            let mut guessstate_dict = HashMap::<_, GuessState>::new();
             for i in 0..5 {
                 let temp = x.chars.chars().nth(i).unwrap();
-                if nonexist.contains_key(&temp) {
-                    if *nonexist.get(&temp).unwrap() != x.state[i] {
-                        return false;
+                if guessstate_dict.contains_key(&temp) {
+                    if *guessstate_dict.get(&temp).unwrap() != x.state[i] {
+                        if guessstate_dict.get(&temp).unwrap() == &GuessState::Wrong
+                            || x.state[i] == GuessState::Wrong
+                        {
+                            return false;
+                        }
                     }
                 } else {
-                    nonexist.insert(temp.clone(), x.state[i]);
+                    guessstate_dict.insert(temp.clone(), x.state[i]);
                 }
             }
             true
