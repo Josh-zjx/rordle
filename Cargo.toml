@@ -8,13 +8,17 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 serde_json = "1.0.85"
-slint = "1.4.1"
+slint = {version="1.5.1",features=["backend-android-activity-05"]}
 
 [profile.release]
 strip = true
+codegen-unit = 1
 opt-level = 3
 lto = true
 panic = "abort"
+
+[lib]
+crate-type=["cdylib"]
 
 
 [[bin]]
@@ -24,3 +28,7 @@ path = "src/play.rs"
 [[bin]]
 name = "solver"
 path = "src/roget.rs"
+
+[package.metadata.android.signing.release]
+path = "/home/josh/.android/debug.keystore"
+keystore_password = "android"
