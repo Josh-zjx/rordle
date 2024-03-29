@@ -1,0 +1,71 @@
+    struct CharItem {
+        text: string,
+        trial:bool,
+        correct:bool,
+        misplaced:bool,
+        nonexist:bool,
+    }
+    component CharBlock inherits Rectangle{
+
+        width: 60px;
+        height: 60px;
+        in property <string> show_char;
+        in property <bool> trial;
+        in property <bool> correct;
+        in property <bool> misplaced;
+
+        Rectangle{
+            background: trial?#FFFFFF:(correct?#00FF00:(misplaced?#FFFF00:#808080));
+            border-radius:10px;
+        }
+        Text {
+            text: show_char;
+            font-size: 35px;
+        }
+
+    }
+export component MainWindow inherits Window {
+        width: 360px;
+        height: 500px;
+        background: #000000;
+
+
+        in property <int> level;
+        in property <int> index;
+        in property <bool> invalid:false;
+        callback handle_keyboard(string);
+        callback reset();
+        FocusScope {
+            key-pressed(event) => {
+               // handle_keyboard(event)
+                root.handle_keyboard(event.text);
+                accept
+
+            }
+        }
+        in property <int> curr_level:0;
+        in property <[CharItem]> char_items:[
+        ];
+
+        Rectangle {
+            x: 80px;
+            y:450px;
+            width:200px;
+            height:50px;
+            background:#ffffff;
+            Text {
+                text:root.invalid?"Invalid input":"";
+
+            }
+        }
+
+        for tile[i] in char_items: CharBlock {
+            x: mod(i,5) * 70px;
+            y: floor(i / 5) * 70px;
+            show_char:tile.text;
+            trial:tile.trial;
+            correct:tile.correct;
+            misplaced:tile.misplaced;
+        }
+
+}
