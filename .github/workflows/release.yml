@@ -33,6 +33,8 @@ jobs:
           distribution: 'temurin'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+      - name: setup api 30
+        run: sdkmanager --install "platforms;android-30"
       - name: add android target
         run: rustup target add aarch64-linux-android
       - name: install cargo apk
