@@ -8,12 +8,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: build
-    - uses: dtolnay/rust-toolchain@stable
-    - run: cargo build -r --bin game
-    - uses: elgohr/Github-Release-Action@v5
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        title: github action release test
+      - uses: actions/checkout@v4
+      - name: setup toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: build
+        run: cargo build -r --bin game
+      - name: release
+        uses: elgohr/Github-Release-Action@v5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: github action release test
