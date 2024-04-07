@@ -1,8 +1,5 @@
 name: release suite
-on: 
-  push:
-    tags:
-      - 'v*'
+on: [push]
 
 jobs:
   build:
@@ -13,6 +10,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: build
         run: cargo build -r --bin game
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: release
         uses: elgohr/Github-Release-Action@v5
         env:
