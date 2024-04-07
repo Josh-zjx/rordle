@@ -19,8 +19,12 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: action/checkout@v4
+      - uses: actions/checkout@v4
       - name: setup toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1.4.2
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
       - name: build android
         run: cargo apk build --target aarch64-linux-android --lib
