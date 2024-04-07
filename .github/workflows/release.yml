@@ -33,5 +33,9 @@ jobs:
           distribution: 'temurin'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+      - name: add android target
+        run: rustup target add aarch64-linux-android
+      - name: install cargo apk
+        run: cargo install cargo-apk
       - name: build android
         run: cargo apk build --target aarch64-linux-android --lib
