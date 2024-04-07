@@ -16,3 +16,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           title: github action release test
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: action/checkout@v4
+      - name: setup toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: build android
+        run: cargo apk build --target aarch64-linux-android --lib
