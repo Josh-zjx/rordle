@@ -24,6 +24,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1.4.2
+        with:
+          ndk-version: r25c
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - name: build android
