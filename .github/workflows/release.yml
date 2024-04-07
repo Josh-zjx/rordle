@@ -1,5 +1,9 @@
 name: release suite
-on: [push]
+on:
+  push:
+    paths:
+      - 'src/'
+      
 
 jobs:
   build:
