@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "src/"
+      - "Cargo.toml"
   pull_request:
     branches: [ "main" ]
 
@@ -12,35 +13,36 @@ env:
 
 jobs:
 
-  linux_build:
-
+  linux_build_test:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --bin game
     - name: Run tests
       run: cargo test --bin game
 
-  windows_build:
-
+  windows_build_test:
     runs-on: windows-latest
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --bin game
     - name: Run tests
       run: cargo test --bin game
 
-  macos_build:
-
+  macos_build_test:
     runs-on: macos-latest
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --bin game
     - name: Run tests
       run: cargo test --bin game
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: clippy
+      run: cargo clippy --bin game
