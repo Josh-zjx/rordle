@@ -25,11 +25,11 @@ fn main() {
     main_window.on_handle_keyboard(move |text| {
         if &text as &str == "\n" {
             let mut level = main_window_weak.unwrap().get_level() as usize;
-            let success = main_window_weak.unwrap().get_success() as bool;
+            let success = main_window_weak.unwrap().get_success();
             if success {
                 return;
             }
-            let failed = main_window_weak.unwrap().get_failed() as bool;
+            let failed = main_window_weak.unwrap().get_failed();
             if failed {
                 return;
             }
@@ -98,11 +98,11 @@ fn main() {
             main_window_weak.unwrap().set_index(index);
             main_window_weak.unwrap().set_invalid(false);
         } else if text.chars().all(char::is_alphabetic) {
-            let success = main_window_weak.unwrap().get_success() as bool;
+            let success = main_window_weak.unwrap().get_success();
             if success {
                 return;
             }
-            let failed = main_window_weak.unwrap().get_failed() as bool;
+            let failed = main_window_weak.unwrap().get_failed();
             if failed {
                 return;
             }
