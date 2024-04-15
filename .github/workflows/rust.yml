@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "src/"
+      - "ui/"
       - "Cargo.toml"
   pull_request:
     branches: [ "main" ]
