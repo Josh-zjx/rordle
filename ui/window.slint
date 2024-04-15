@@ -15,7 +15,7 @@
         in property <bool> misplaced;
 
         Rectangle{
-            background: trial?#FFFFFF:(correct?#00FF00:(misplaced?#FFFF00:#808080));
+            background: trial?#CCD2CC:(correct?#00FF00:(misplaced?#FFFF00:#808080));
             border-radius:10px;
         }
         Text {
@@ -27,7 +27,7 @@
 export component MainWindow inherits Window {
         width: 360px;
         height: 500px;
-        background: #000000;
+        background: #93939B;
 
 
         in property <int> level;
@@ -52,7 +52,7 @@ export component MainWindow inherits Window {
             y:450px;
             width:200px;
             height:50px;
-            background:#ffffff;
+            background:#E2C6C4;
             Text {
                 text:root.invalid?"Invalid input":"";
 
@@ -60,8 +60,8 @@ export component MainWindow inherits Window {
         }
 
         for tile[i] in char_items: CharBlock {
-            x: mod(i,5) * 70px;
-            y: floor(i / 5) * 70px;
+            x: mod(i,5) * 70px + 10px;
+            y: floor(i / 5) * 70px + 10px;
             show_char:tile.text;
             trial:tile.trial;
             correct:tile.correct;
