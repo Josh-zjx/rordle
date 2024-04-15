@@ -33,6 +33,8 @@ export component MainWindow inherits Window {
         in property <int> level;
         in property <int> index;
         in property <bool> invalid:false;
+		in property <bool> success:false;
+		in property <bool> failed:false;
         callback handle_keyboard(string);
         callback reset();
         FocusScope {
@@ -54,7 +56,7 @@ export component MainWindow inherits Window {
             height:50px;
             background:#E2C6C4;
             Text {
-                text:root.invalid?"Invalid input":"";
+                text:root.success?"Congratulations":failed?"You lost":invalid?"Invalid input":"";
 
             }
         }

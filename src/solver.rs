@@ -1,14 +1,14 @@
 use super::game::*;
-use std::collections::{hash_map, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::io::prelude::*;
 use std::sync::Arc;
 
-const CACHE: bool = true;
+const _CACHE: bool = true;
 #[derive(Debug)]
 pub struct Solver {
     patterns: Vec<Pattern>,
     valid_table: Vec<bool>,
-    second_cache: Vec<String>,
+    _second_cache: Vec<String>,
     candidates: Vec<String>,
     pub current_candidate: String,
 }
@@ -32,7 +32,7 @@ impl Solver {
         Solver {
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
-            second_cache: cache_lines,
+            _second_cache: cache_lines,
             candidates: game.candidates.clone(),
             current_candidate: String::new(),
         }

@@ -25,6 +25,14 @@ fn main() {
     main_window.on_handle_keyboard(move |text| {
         if &text as &str == "\n" {
             let mut level = main_window_weak.unwrap().get_level() as usize;
+            let success = main_window_weak.unwrap().get_success() as bool;
+            if success {
+                return;
+            }
+            let failed = main_window_weak.unwrap().get_failed() as bool;
+            if failed {
+                return;
+            }
 
             let curr_word = format!(
                 "{}{}{}{}{}",
@@ -34,7 +42,7 @@ fn main() {
                 char_items_handler.row_data(level * 5 + 3).unwrap().text,
                 char_items_handler.row_data(level * 5 + 4).unwrap().text,
             );
-            println!("Tring to submit: {:?}", curr_word);
+            println!("Trying to submit: {:?}", curr_word);
             let guess = Guess {
                 state: curr_word.to_lowercase(),
             };
@@ -64,7 +72,15 @@ fn main() {
                     }
                 }
                 game.lock().unwrap().progress_game(Arc::new(res));
+                if game.lock().unwrap().state == GameState::Correct {
+                    main_window_weak.unwrap().set_success(true);
+                    println!("Correct Guess!");
+                }
                 level += 1;
+                if level == 6 {
+                    main_window_weak.unwrap().set_failed(true);
+                    println!("Game Over!");
+                }
                 main_window_weak.unwrap().set_level(level as i32);
                 main_window_weak.unwrap().set_index(0);
             } else {
@@ -82,6 +98,14 @@ fn main() {
             main_window_weak.unwrap().set_index(index);
             main_window_weak.unwrap().set_invalid(false);
         } else if text.chars().all(char::is_alphabetic) {
+            let success = main_window_weak.unwrap().get_success() as bool;
+            if success {
+                return;
+            }
+            let failed = main_window_weak.unwrap().get_failed() as bool;
+            if failed {
+                return;
+            }
             let level = main_window_weak.unwrap().get_level();
             let mut index = main_window_weak.unwrap().get_index();
             if index < 5 {
@@ -112,7 +136,7 @@ fn main() {
 }
 
 fn build_charblock(text: &str) -> CharItem {
-    println!("New charblock: {:?}", text);
+    //println!("New charblock: {:?}", text);
     CharItem {
         text: text.into(),
         trial: true,
