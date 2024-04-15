@@ -3,8 +3,8 @@ name: Rust
 on:
   push:
     paths:
-      - "src/*"
-      - "ui/*"
+      - "src/**"
+      - "ui/**"
       - "Cargo.toml"
   pull_request:
     branches: [ "main" ]

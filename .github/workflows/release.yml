@@ -2,8 +2,8 @@ name: release suite
 on:
   push:
     paths:
-      - 'src/*'
-      - 'ui/*'
+      - 'src/**'
+      - 'ui/**'
       - 'Cargo.toml'
 
 jobs:
