@@ -1,5 +1,6 @@
 name: release suite
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'src/**'
@@ -53,6 +54,7 @@ jobs:
 
   release_binary:
     needs: [build, android]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: release
