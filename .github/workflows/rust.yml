@@ -26,6 +26,17 @@ jobs:
     - name: Run tests
       run: cargo test --bin game
 
+  linux_solver_test:
+    needs: linux_build_test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - name: Run
+      run: cargo run -r --bin solver
+
+    
+
   windows_build_test:
     runs-on: windows-latest
     steps:
