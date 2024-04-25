@@ -61,6 +61,8 @@ impl Solver {
             }
         }
         rank.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        #[cfg(debug_assertions)]
         for (x, y) in rank.into_iter().take(5) {
             println!("{}: {}", y, -x);
         }

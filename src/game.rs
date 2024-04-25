@@ -45,6 +45,8 @@ impl Game {
 
         let mut candidate_vec: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
         let answer = answers[index].clone();
+
+        #[cfg(debug_assertions)]
         println!("The answer is {}", answer);
         candidate_vec.append(&mut (answers.clone()));
         Game {

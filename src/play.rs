@@ -42,13 +42,18 @@ fn main() {
                 char_items_handler.row_data(level * 5 + 3).unwrap().text,
                 char_items_handler.row_data(level * 5 + 4).unwrap().text,
             );
+
             println!("Trying to submit: {:?}", curr_word);
+
             let guess = Guess {
                 state: curr_word.to_lowercase(),
             };
             if (game.lock().unwrap()).check_valid_guess(&guess) {
                 let res = game.lock().unwrap().grade_guess(&guess);
+
+                #[cfg(debug_assertions)]
                 println!("Match {:?}", res);
+
                 for i in 0..5 {
                     let index = level * 5 + i;
                     let mut new_state = char_items_handler.row_data(index).unwrap();

@@ -9,7 +9,7 @@ fn main() {
     let sum = Arc::new(Mutex::new(0));
     let fail = Arc::new(Mutex::new(0));
     let count = Arc::new(Mutex::new(0));
-    let total_thread = 1;
+    let total_thread = 8;
     let mut handlers = Vec::new();
     for t in 0..total_thread {
         let sum = sum.clone();
@@ -18,7 +18,7 @@ fn main() {
         let handler = thread::spawn(move || {
             let mut game = Game::new();
             let mut solver = Solver::bind(&game);
-            let total_run = game.answers.len() / 100;
+            let total_run = game.answers.len();
             let offset = t;
             for i in 0..total_run {
                 if i % total_thread == offset {
@@ -30,7 +30,9 @@ fn main() {
                         count += 1;
                         let (guess, score) = solver.new_guess(game.round() as u8);
 
+                        #[cfg(debug_assertions)]
                         println!("{} {:?} {}", count, guess, score);
+
                         let one_match = solver.try_guess(guess, &mut game);
 
                         if one_match.is_some() && one_match.unwrap().is_correct() {
