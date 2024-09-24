@@ -46,8 +46,6 @@ impl Game {
         let mut candidate_vec: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
         let answer = answers[index].clone();
 
-        #[cfg(debug_assertions)]
-        println!("The answer is {}", answer);
         candidate_vec.append(&mut (answers.clone()));
         Game {
             answer,
@@ -62,6 +60,12 @@ impl Game {
         assert!(index < self.answers.len());
         self.answer_index = index;
         self.answer = self.answers[self.answer_index].clone();
+        self.round = 0;
+        self.state = GameState::On;
+    }
+    pub fn set_game_with_answer(&mut self, answer: String) {
+        self.answer_index = 0;
+        self.answer = answer;
         self.round = 0;
         self.state = GameState::On;
     }
