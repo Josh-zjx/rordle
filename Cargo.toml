@@ -10,11 +10,11 @@ build = "src/build.rs"
 rand = "0.8.5"
 rayon = "1.10.0"
 serde_json = "1.0.85"
-slint = {version="1.5.1",features=["backend-android-activity-05"]}
+slint = {version="1.14.1",features=["backend-android-activity-05"]}
 tracing = "0.1.40"
 
 [build-dependencies]
-slint-build = "1.5.1"
+slint-build = "1.14.1"
 
 [profile.release]
 strip = true
