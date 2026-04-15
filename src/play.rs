@@ -10,51 +10,67 @@ fn main() {
 
     let game = Rc::new(Mutex::new(Game::new()));
 
-    let main_window = MainWindow::new().unwrap();
+    let main_window = MainWindow::new().expect("failed to create main window");
     let main_window_weak = main_window.as_weak();
     let new_data = vec![empty_charblock(); 30];
     let new_data = Rc::new(slint::VecModel::from(new_data));
-    main_window_weak
-        .unwrap()
-        .set_char_items(Rc::clone(&new_data).into());
-    main_window_weak.unwrap().set_level(0);
-    main_window_weak.unwrap().set_index(0);
+    main_window.set_char_items(Rc::clone(&new_data).into());
+    main_window.set_level(0);
+    main_window.set_index(0);
 
     // Callback functions on handle keyboard input
     let char_items_handler = Rc::clone(&new_data);
     main_window.on_handle_keyboard(move |text| {
+        let Some(window) = main_window_weak.upgrade() else {
+            return;
+        };
+
         if &text as &str == "\n" {
-            let mut level = main_window_weak.unwrap().get_level() as usize;
-            let success = main_window_weak.unwrap().get_success();
+            let mut level = window.get_level() as usize;
+            let success = window.get_success();
             if success {
                 return;
             }
-            let failed = main_window_weak.unwrap().get_failed();
+            let failed = window.get_failed();
             if failed {
                 return;
             }
 
+            let Some(first) = char_items_handler.row_data(level * 5) else {
+                return;
+            };
+            let Some(second) = char_items_handler.row_data(level * 5 + 1) else {
+                return;
+            };
+            let Some(third) = char_items_handler.row_data(level * 5 + 2) else {
+                return;
+            };
+            let Some(fourth) = char_items_handler.row_data(level * 5 + 3) else {
+                return;
+            };
+            let Some(fifth) = char_items_handler.row_data(level * 5 + 4) else {
+                return;
+            };
             let curr_word = format!(
                 "{}{}{}{}{}",
-                char_items_handler.row_data(level * 5).unwrap().text,
-                char_items_handler.row_data(level * 5 + 1).unwrap().text,
-                char_items_handler.row_data(level * 5 + 2).unwrap().text,
-                char_items_handler.row_data(level * 5 + 3).unwrap().text,
-                char_items_handler.row_data(level * 5 + 4).unwrap().text,
+                first.text, second.text, third.text, fourth.text, fifth.text,
             );
 
             println!("Trying to submit: {:?}", curr_word);
 
             let guess = curr_word.to_lowercase();
-            if (game.lock().unwrap()).check_valid_guess(&guess) {
-                let res = game.lock().unwrap().grade_guess(&guess);
+            let mut game = game.lock().expect("game mutex should not be poisoned");
+            if game.check_valid_guess(&guess) {
+                let res = game.grade_guess(&guess);
 
                 #[cfg(debug_assertions)]
                 println!("Match {:?}", res);
 
                 for i in 0..5 {
                     let index = level * 5 + i;
-                    let mut new_state = char_items_handler.row_data(index).unwrap();
+                    let Some(mut new_state) = char_items_handler.row_data(index) else {
+                        return;
+                    };
                     new_state.trial = false;
                     new_state.nonexist = false;
                     new_state.correct = false;
@@ -74,52 +90,52 @@ fn main() {
                         }
                     }
                 }
-                game.lock().unwrap().progress_game(&res);
-                if game.lock().unwrap().state == GameState::Correct {
-                    main_window_weak.unwrap().set_success(true);
+                game.progress_game(&res);
+                if game.state == GameState::Correct {
+                    window.set_success(true);
                     println!("Correct Guess!");
                 }
                 level += 1;
                 if level == 6 {
-                    main_window_weak.unwrap().set_failed(true);
+                    window.set_failed(true);
                     println!("Game Over!");
                 }
-                main_window_weak.unwrap().set_level(level as i32);
-                main_window_weak.unwrap().set_index(0);
+                window.set_level(level as i32);
+                window.set_index(0);
             } else {
                 println!("Invalid Guess");
-                main_window_weak.unwrap().set_invalid(true);
+                window.set_invalid(true);
             }
         } else if &text as &str == "\u{8}" {
-            let level = main_window_weak.unwrap().get_level();
-            let mut index = main_window_weak.unwrap().get_index();
+            let level = window.get_level();
+            let mut index = window.get_index();
             if index > 0 {
                 char_items_handler
                     .set_row_data((level * 5 + index - 1) as usize, empty_charblock());
                 index -= 1;
             }
-            main_window_weak.unwrap().set_index(index);
-            main_window_weak.unwrap().set_invalid(false);
+            window.set_index(index);
+            window.set_invalid(false);
         } else if text.chars().all(char::is_alphabetic) {
-            let success = main_window_weak.unwrap().get_success();
+            let success = window.get_success();
             if success {
                 return;
             }
-            let failed = main_window_weak.unwrap().get_failed();
+            let failed = window.get_failed();
             if failed {
                 return;
             }
-            let level = main_window_weak.unwrap().get_level();
-            let mut index = main_window_weak.unwrap().get_index();
+            let level = window.get_level();
+            let mut index = window.get_index();
             if index < 5 {
                 char_items_handler.set_row_data(
                     (level * 5 + index) as usize,
                     build_charblock(&text.to_string().to_uppercase()),
                 );
                 index += 1;
-                main_window_weak.unwrap().set_invalid(false);
+                window.set_invalid(false);
             }
-            main_window_weak.unwrap().set_index(index);
+            window.set_index(index);
         }
     });
     let main_window_weak = main_window.as_weak();
@@ -131,11 +147,14 @@ fn main() {
         for i in 0..30 {
             char_items_handler.set_row_data(i, empty_charblock())
         }
-        main_window_weak.unwrap().set_level(0);
-        main_window_weak.unwrap().set_index(0);
+        let Some(window) = main_window_weak.upgrade() else {
+            return;
+        };
+        window.set_level(0);
+        window.set_index(0);
     });
 
-    main_window.run().unwrap();
+    main_window.run().expect("failed to run main window");
 }
 
 fn build_charblock(text: &str) -> CharItem {

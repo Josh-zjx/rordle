@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::io::prelude::*;
 use std::sync::{Arc, OnceLock};
 
@@ -9,36 +10,38 @@ pub(crate) struct WordList {
 }
 
 impl WordList {
-    fn load() -> WordList {
+    fn load() -> Result<WordList, Box<dyn Error>> {
         let mut answer_strings = String::new();
         {
-            let mut answer_file = std::fs::File::open("./data/answer").unwrap();
-            answer_file.read_to_string(&mut answer_strings).unwrap();
+            let mut answer_file = std::fs::File::open("./data/answer")?;
+            answer_file.read_to_string(&mut answer_strings)?;
         }
-        let answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
+        let answers: Vec<String> = serde_json::from_str(&answer_strings)?;
 
         let mut candidate_strings = String::new();
         {
-            let mut candidate_file = std::fs::File::open("./data/candidate").unwrap();
-            candidate_file
-                .read_to_string(&mut candidate_strings)
-                .unwrap();
+            let mut candidate_file = std::fs::File::open("./data/candidate")?;
+            candidate_file.read_to_string(&mut candidate_strings)?;
         }
 
-        let mut candidates: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
+        let mut candidates: Vec<String> = serde_json::from_str(&candidate_strings)?;
         candidates.extend(answers.iter().cloned());
 
-        WordList {
+        Ok(WordList {
             answers,
             candidates,
-        }
+        })
     }
 }
 
 fn shared_word_list() -> Arc<WordList> {
     static WORD_LIST: OnceLock<Arc<WordList>> = OnceLock::new();
 
-    Arc::clone(WORD_LIST.get_or_init(|| Arc::new(WordList::load())))
+    Arc::clone(
+        WORD_LIST.get_or_init(|| {
+            Arc::new(WordList::load().expect("failed to load word list data files"))
+        }),
+    )
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
@@ -209,6 +212,18 @@ mod tests {
     }
 
     #[test]
+    fn word_list_loads_answers_and_candidates_from_disk() {
+        let words = WordList::load().expect("failed to load word list test data");
+
+        assert!(!words.answers.is_empty());
+        assert!(!words.candidates.is_empty());
+        assert!(words
+            .answers
+            .iter()
+            .all(|answer| words.candidates.contains(answer)));
+    }
+
+    #[test]
     fn grade_guess_marks_exact_match_as_all_correct() {
         let mut game = Game::new();
         game.set_game_with_answer("cigar".to_string());
@@ -286,7 +301,7 @@ mod tests {
             .answers()
             .iter()
             .position(|answer| answer == "zonal")
-            .unwrap();
+            .expect("zonal should exist in the answer list");
 
         game.set_game_with_answer("zonal");
         assert_eq!(game.answer(), "zonal");

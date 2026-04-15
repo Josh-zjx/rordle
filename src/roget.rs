@@ -13,7 +13,7 @@ fn main() {
 #[allow(dead_code)]
 fn solve_one() {
     let mut game = Game::new();
-    let mut solver = Solver::bind(&game);
+    let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
     game.set_game_with_answer("zonal");
     println!("answer is {:}", game.answer());
     solver.reset();
@@ -51,7 +51,7 @@ fn solve_all() {
         let g_count = Arc::clone(&count);
         let handler = thread::spawn(move || {
             let mut game = Game::new();
-            let mut solver = Solver::bind(&game);
+            let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
             let total_run = game.answers().len();
             //let total_run = 1;
             let offset = t;
@@ -68,22 +68,30 @@ fn solve_all() {
                         let one_match = solver.try_guess(guess, &mut game);
 
                         if one_match.as_ref().is_some_and(Match::is_correct) {
-                            *g_count.lock().unwrap() += count;
+                            *g_count
+                                .lock()
+                                .expect("attempt counter mutex should not be poisoned") += count;
                             if count > 6 {
-                                let mut fail_handler = fail.lock().unwrap();
+                                let mut fail_handler = fail
+                                    .lock()
+                                    .expect("failure counter mutex should not be poisoned");
                                 *fail_handler += 1;
                             }
                             break;
                         }
                         if count > 20 {
                             {
-                                let mut unsolve_handler = unsolve.lock().unwrap();
+                                let mut unsolve_handler = unsolve
+                                    .lock()
+                                    .expect("unsolved counter mutex should not be poisoned");
                                 *unsolve_handler += 1;
                             }
                             break;
                         }
                     }
-                    let mut sum_handler = sum.lock().unwrap();
+                    let mut sum_handler = sum
+                        .lock()
+                        .expect("completed-game counter mutex should not be poisoned");
                     *sum_handler += 1;
                 }
             }
@@ -91,13 +99,32 @@ fn solve_all() {
         handlers.push(handler);
     }
     for h in handlers.into_iter() {
-        h.join().unwrap();
+        h.join().expect("solver thread should not panic");
     }
-    println!("Total attempts: {:}", *sum.lock().unwrap());
-    println!("Total failures: {:}", *fail.lock().unwrap());
-    println!("Total unsolved: {:}", *unsolve.lock().unwrap());
+    println!(
+        "Total attempts: {:}",
+        *sum.lock()
+            .expect("completed-game counter mutex should not be poisoned")
+    );
+    println!(
+        "Total failures: {:}",
+        *fail
+            .lock()
+            .expect("failure counter mutex should not be poisoned")
+    );
+    println!(
+        "Total unsolved: {:}",
+        *unsolve
+            .lock()
+            .expect("unsolved counter mutex should not be poisoned")
+    );
     println!(
         "Average Trial: {:}",
-        *count.lock().unwrap() as f64 / *sum.lock().unwrap() as f64
+        *count
+            .lock()
+            .expect("attempt counter mutex should not be poisoned") as f64
+            / *sum
+                .lock()
+                .expect("completed-game counter mutex should not be poisoned") as f64
     );
 }

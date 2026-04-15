@@ -1,4 +1,5 @@
 use super::game::*;
+use std::error::Error;
 use std::io::prelude::*;
 use std::sync::Arc;
 
@@ -65,21 +66,21 @@ impl Solver {
         &self.words.candidates
     }
 
-    pub fn bind(game: &Game) -> Solver {
+    pub fn bind(game: &Game) -> Result<Solver, Box<dyn Error>> {
         let table_size = game.candidates().len();
         let mut cache_strings = String::new();
         {
-            let mut cache_file = std::fs::File::open("./data/cache").unwrap();
-            cache_file.read_to_string(&mut cache_strings).unwrap();
+            let mut cache_file = std::fs::File::open("./data/cache")?;
+            cache_file.read_to_string(&mut cache_strings)?;
         }
 
-        Solver {
+        Ok(Solver {
             patterns: Vec::new(),
             valid_table: vec![true; table_size],
             words: game.word_list(),
             current_candidate: String::new(),
             survive: table_size,
-        }
+        })
     }
     pub fn new_guess(&self, round: u8) -> (Guess, f64) {
         let candidates = self.candidates();
@@ -115,7 +116,10 @@ impl Solver {
 
         #[cfg(debug_assertions)]
         {
-            rank.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            rank.sort_by(|a, b| {
+                a.partial_cmp(b)
+                    .expect("solver scores should always be comparable")
+            });
 
             for (x, y) in rank.into_iter().take(100) {
                 println!("{}: {}", y, -x);
@@ -131,7 +135,10 @@ impl Solver {
             return None;
         }
         let one_match = game.grade_guess(guess_word);
-        let guess_chars = guess_word.as_bytes().try_into().unwrap();
+        let guess_chars = guess_word
+            .as_bytes()
+            .try_into()
+            .expect("guess word must be exactly 5 bytes");
         game.progress_game(&one_match);
         self.add_pattern(guess_chars, &one_match);
         #[cfg(debug_assertions)]
@@ -245,7 +252,7 @@ mod tests {
     #[test]
     fn bind_initializes_candidate_tracking_from_game() {
         let game = Game::new();
-        let solver = Solver::bind(&game);
+        let solver = Solver::bind(&game).expect("failed to bind solver to game data");
 
         assert_eq!(solver.valid_table.len(), game.candidates().len());
         assert_eq!(solver.candidates().len(), game.candidates().len());
@@ -255,9 +262,23 @@ mod tests {
     }
 
     #[test]
+    fn bind_does_not_change_existing_game_state() {
+        let mut game = Game::new();
+        game.set_game_with_answer("zonal");
+        let round = game.round();
+        let answer = game.answer().to_string();
+
+        let _solver = Solver::bind(&game).expect("failed to bind solver to game data");
+
+        assert_eq!(game.answer(), answer);
+        assert_eq!(game.round(), round);
+        assert!(matches!(game.state, GameState::On));
+    }
+
+    #[test]
     fn new_guess_returns_tares_for_opening_round() {
         let game = Game::new();
-        let solver = Solver::bind(&game);
+        let solver = Solver::bind(&game).expect("failed to bind solver to game data");
 
         let (guess, score) = solver.new_guess(0);
 
@@ -269,7 +290,7 @@ mod tests {
     fn try_guess_returns_match_for_valid_guess_and_none_for_invalid_guess() {
         let mut game = Game::new();
         game.set_game_with_answer("cigar");
-        let mut solver = Solver::bind(&game);
+        let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
 
         let valid_guess = Guess::Word("cigar".into());
         let invalid_guess = Guess::Word("xxxxx".into());
@@ -278,7 +299,9 @@ mod tests {
         let invalid_match = solver.try_guess(invalid_guess, &mut game);
 
         assert!(valid_match.is_some());
-        assert!(valid_match.unwrap().is_correct());
+        assert!(valid_match
+            .expect("valid guess should produce a match")
+            .is_correct());
         assert!(invalid_match.is_none());
     }
 
@@ -286,12 +309,9 @@ mod tests {
     fn reset_restores_solver_state() {
         let mut game = Game::new();
         game.set_game_with_answer("cigar");
-        let mut solver = Solver::bind(&game);
+        let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
 
-        let _ = solver.try_guess(
-            Guess::Word("argon".into()),
-            &mut game,
-        );
+        let _ = solver.try_guess(Guess::Word("argon".into()), &mut game);
 
         solver.reset();
 
@@ -303,7 +323,7 @@ mod tests {
     #[test]
     fn calculate_score_is_non_negative() {
         let game = Game::new();
-        let solver = Solver::bind(&game);
+        let solver = Solver::bind(&game).expect("failed to bind solver to game data");
 
         assert!(solver.calculate_score(0) >= 0.0);
     }
@@ -311,7 +331,7 @@ mod tests {
     #[test]
     fn solver_can_still_solve_zonal_with_current_behavior() {
         let mut game = Game::new();
-        let mut solver = Solver::bind(&game);
+        let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
         game.set_game_with_answer("zonal");
         solver.reset();
 
@@ -322,11 +342,17 @@ mod tests {
             let (guess, _score) = solver.new_guess(game.round() as u8);
             let one_match = solver.try_guess(guess, &mut game);
 
-            if one_match.as_ref().is_some_and(|one_match| one_match.is_correct()) {
+            if one_match
+                .as_ref()
+                .is_some_and(|one_match| one_match.is_correct())
+            {
                 break;
             }
 
-            assert!(attempts < 20, "solver failed to solve zonal within 20 guesses");
+            assert!(
+                attempts < 20,
+                "solver failed to solve zonal within 20 guesses"
+            );
         }
 
         assert!(attempts <= 6, "solver regressed to {attempts} guesses");
