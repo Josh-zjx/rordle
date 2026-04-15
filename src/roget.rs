@@ -14,7 +14,7 @@ fn main() {
 fn solve_one() {
     let mut game = Game::new();
     let mut solver = Solver::bind(&game);
-    game.set_game_with_answer(String::from("zonal"));
+    game.set_game_with_answer("zonal");
     println!("answer is {:}", game.answer());
     solver.reset();
     let mut count = 0;
@@ -23,11 +23,11 @@ fn solve_one() {
         count += 1;
         let (guess, score) = solver.new_guess(game.round() as u8);
 
-        println!("{} {:?} {}", count, guess, score);
+        println!("{} {} {}", count, guess.as_str(game.candidates()), score);
 
         let one_match = solver.try_guess(guess, &mut game);
 
-        if one_match.is_some() && one_match.unwrap().is_correct() {
+        if one_match.as_ref().is_some_and(Match::is_correct) {
             break;
         }
         if count > 20 {
@@ -45,14 +45,14 @@ fn solve_all() {
     let total_thread = 8;
     let mut handlers = Vec::new();
     for t in 0..total_thread {
-        let sum = sum.clone();
-        let fail = fail.clone();
-        let unsolve = unsolve.clone();
-        let g_count = count.clone();
+        let sum = Arc::clone(&sum);
+        let fail = Arc::clone(&fail);
+        let unsolve = Arc::clone(&unsolve);
+        let g_count = Arc::clone(&count);
         let handler = thread::spawn(move || {
             let mut game = Game::new();
             let mut solver = Solver::bind(&game);
-            let total_run = game.answers.len();
+            let total_run = game.answers().len();
             //let total_run = 1;
             let offset = t;
             for i in 0..total_run {
@@ -67,7 +67,7 @@ fn solve_all() {
 
                         let one_match = solver.try_guess(guess, &mut game);
 
-                        if one_match.is_some() && one_match.unwrap().is_correct() {
+                        if one_match.as_ref().is_some_and(Match::is_correct) {
                             *g_count.lock().unwrap() += count;
                             if count > 6 {
                                 let mut fail_handler = fail.lock().unwrap();

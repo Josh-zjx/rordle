@@ -1,6 +1,45 @@
 use std::collections::BTreeSet;
 use std::io::prelude::*;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+#[derive(Debug)]
+pub(crate) struct WordList {
+    pub(crate) answers: Vec<String>,
+    pub(crate) candidates: Vec<String>,
+}
+
+impl WordList {
+    fn load() -> WordList {
+        let mut answer_strings = String::new();
+        {
+            let mut answer_file = std::fs::File::open("./data/answer").unwrap();
+            answer_file.read_to_string(&mut answer_strings).unwrap();
+        }
+        let answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
+
+        let mut candidate_strings = String::new();
+        {
+            let mut candidate_file = std::fs::File::open("./data/candidate").unwrap();
+            candidate_file
+                .read_to_string(&mut candidate_strings)
+                .unwrap();
+        }
+
+        let mut candidates: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
+        candidates.extend(answers.iter().cloned());
+
+        WordList {
+            answers,
+            candidates,
+        }
+    }
+}
+
+fn shared_word_list() -> Arc<WordList> {
+    static WORD_LIST: OnceLock<Arc<WordList>> = OnceLock::new();
+
+    Arc::clone(WORD_LIST.get_or_init(|| Arc::new(WordList::load())))
+}
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 pub enum GuessState {
@@ -11,10 +50,9 @@ pub enum GuessState {
 
 #[derive(Debug)]
 pub struct Game {
-    answer: String,
+    words: Arc<WordList>,
     answer_index: usize,
-    pub answers: Vec<String>,
-    pub candidates: Vec<String>,
+    custom_answer: Option<String>,
     round: usize,
     pub state: GameState,
 }
@@ -25,56 +63,51 @@ impl Default for Game {
 }
 impl Game {
     pub fn new() -> Game {
-        let mut answer_strings = String::new();
-        {
-            let mut answer_file = std::fs::File::open("./data/answer").unwrap();
-            answer_file.read_to_string(&mut answer_strings).unwrap();
-        }
-        let answers: Vec<String> = serde_json::from_str(&answer_strings).unwrap();
+        let words = shared_word_list();
 
         let mut index: usize = rand::random();
-        index %= answers.len();
+        index %= words.answers.len();
 
-        let mut candidate_strings = String::new();
-        {
-            let mut candidate_file = std::fs::File::open("./data/candidate").unwrap();
-            candidate_file
-                .read_to_string(&mut candidate_strings)
-                .unwrap();
-        }
-
-        let mut candidate_vec: Vec<String> = serde_json::from_str(&candidate_strings).unwrap();
-        let answer = answers[index].clone();
-
-        candidate_vec.append(&mut (answers.clone()));
         Game {
-            answer,
+            words,
             answer_index: index,
-            answers,
-            candidates: candidate_vec,
+            custom_answer: None,
             round: 0,
             state: GameState::On,
         }
     }
+    pub fn answers(&self) -> &[String] {
+        &self.words.answers
+    }
+    pub fn candidates(&self) -> &[String] {
+        &self.words.candidates
+    }
+    pub(crate) fn word_list(&self) -> Arc<WordList> {
+        Arc::clone(&self.words)
+    }
     pub fn set_game_with_answer_index(&mut self, index: usize) {
-        assert!(index < self.answers.len());
+        assert!(index < self.answers().len());
         self.answer_index = index;
-        self.answer = self.answers[self.answer_index].clone();
+        self.custom_answer = None;
         self.round = 0;
         self.state = GameState::On;
     }
-    pub fn set_game_with_answer(&mut self, answer: String) {
+    pub fn set_game_with_answer(&mut self, answer: impl Into<String>) {
         self.answer_index = 0;
-        self.answer = answer;
+        self.custom_answer = Some(answer.into());
         self.round = 0;
         self.state = GameState::On;
     }
-    pub fn grade_guess(&self, guess: &Guess) -> Match {
+    fn current_answer(&self) -> &str {
+        self.custom_answer
+            .as_deref()
+            .unwrap_or(&self.words.answers[self.answer_index])
+    }
+    pub fn grade_guess(&self, word: &str) -> Match {
         let mut one_match = Match::new();
         // Correct pass
-        let word = &guess.state;
         let mut char_set: BTreeSet<u8> = BTreeSet::new();
-        let answer_bytes = self.answer.as_bytes();
+        let answer_bytes = self.current_answer().as_bytes();
         let word_bytes = word.as_bytes();
         char_set.extend(answer_bytes.iter());
 
@@ -89,11 +122,10 @@ impl Game {
         }
         one_match
     }
-    pub fn check_valid_guess(&self, guess: &Guess) -> bool {
-        let word = &guess.state;
-        self.candidates.iter().any(|i| *i == *word)
+    pub fn check_valid_guess(&self, word: &str) -> bool {
+        self.candidates().iter().any(|candidate| candidate == word)
     }
-    pub fn progress_game(&mut self, one_match: Arc<Match>) {
+    pub fn progress_game(&mut self, one_match: &Match) {
         if one_match.is_correct() {
             self.state = GameState::Correct;
         } else {
@@ -107,14 +139,15 @@ impl Game {
     pub fn inc_round(&mut self) {
         self.round += 1;
     }
-    pub fn answer(&self) -> String {
-        self.answer.clone()
+    pub fn answer(&self) -> &str {
+        self.current_answer()
     }
     pub fn reset(&mut self) {
         let mut index: usize = rand::random();
-        index %= self.answers.len();
+        index %= self.answers().len();
 
-        self.answer = self.answers[index].clone();
+        self.answer_index = index;
+        self.custom_answer = None;
     }
 }
 
@@ -154,7 +187,128 @@ pub enum GameState {
     Correct,
     Over,
 }
-#[derive(Clone, Debug)]
-pub struct Guess {
-    pub state: String,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn correct_match() -> Match {
+        Match {
+            states: [GuessState::Correct; 5],
+        }
+    }
+
+    #[test]
+    fn new_game_starts_with_loaded_words_and_initial_state() {
+        let game = Game::new();
+
+        assert!(!game.answers().is_empty());
+        assert!(!game.candidates().is_empty());
+        assert_eq!(game.round(), 0);
+        assert!(matches!(game.state, GameState::On));
+        assert!(game.candidates().contains(&game.answer().to_string()));
+    }
+
+    #[test]
+    fn grade_guess_marks_exact_match_as_all_correct() {
+        let mut game = Game::new();
+        game.set_game_with_answer("cigar".to_string());
+
+        let one_match = game.grade_guess("cigar");
+
+        assert_eq!(one_match.states, [GuessState::Correct; 5]);
+    }
+
+    #[test]
+    fn grade_guess_marks_partial_and_mixed_matches_with_current_rules() {
+        let mut game = Game::new();
+        game.set_game_with_answer("cigar".to_string());
+
+        let partial = game.grade_guess("argon");
+        let mixed = game.grade_guess("cairn");
+
+        assert_eq!(
+            partial.states,
+            [
+                GuessState::Misplace,
+                GuessState::Misplace,
+                GuessState::Correct,
+                GuessState::Wrong,
+                GuessState::Wrong,
+            ]
+        );
+        assert_eq!(
+            mixed.states,
+            [
+                GuessState::Correct,
+                GuessState::Misplace,
+                GuessState::Misplace,
+                GuessState::Misplace,
+                GuessState::Wrong,
+            ]
+        );
+    }
+
+    #[test]
+    fn grade_guess_marks_absent_letters_as_wrong() {
+        let mut game = Game::new();
+        game.set_game_with_answer("cigar".to_string());
+
+        let one_match = game.grade_guess("blush");
+
+        assert_eq!(one_match.states, [GuessState::Wrong; 5]);
+    }
+
+    #[test]
+    fn check_valid_guess_distinguishes_known_and_unknown_words() {
+        let game = Game::new();
+
+        assert!(game.check_valid_guess("zonal"));
+        assert!(!game.check_valid_guess("xxxxx"));
+    }
+
+    #[test]
+    fn progress_game_sets_correct_or_advances_round() {
+        let mut game = Game::new();
+
+        game.progress_game(&Match::new());
+        assert!(matches!(game.state, GameState::On));
+        assert_eq!(game.round(), 1);
+
+        game.progress_game(&correct_match());
+        assert!(matches!(game.state, GameState::Correct));
+        assert_eq!(game.round(), 1);
+    }
+
+    #[test]
+    fn set_game_with_answer_and_index_update_answer() {
+        let mut game = Game::new();
+        let zonal_index = game
+            .answers()
+            .iter()
+            .position(|answer| answer == "zonal")
+            .unwrap();
+
+        game.set_game_with_answer("zonal");
+        assert_eq!(game.answer(), "zonal");
+
+        game.set_game_with_answer_index(zonal_index);
+        assert_eq!(game.answer(), "zonal");
+        assert_eq!(game.round(), 0);
+        assert!(matches!(game.state, GameState::On));
+    }
+
+    #[test]
+    fn set_game_with_answer_accepts_custom_answers() {
+        let mut game = Game::new();
+
+        game.set_game_with_answer("abcde");
+
+        assert_eq!(game.answer(), "abcde");
+    }
+
+    #[test]
+    fn match_is_correct_only_when_every_slot_is_correct() {
+        assert!(correct_match().is_correct());
+        assert!(!Match::new().is_correct());
+    }
 }

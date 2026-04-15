@@ -2,7 +2,7 @@ pub mod game;
 pub mod solver;
 use game::*;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 slint::include_modules!();
 
 fn main() {
@@ -11,17 +11,17 @@ fn main() {
     let game = Rc::new(Mutex::new(Game::new()));
 
     let main_window = MainWindow::new().unwrap();
-    let main_window_weak = main_window.as_weak().clone();
+    let main_window_weak = main_window.as_weak();
     let new_data = vec![empty_charblock(); 30];
     let new_data = Rc::new(slint::VecModel::from(new_data));
     main_window_weak
         .unwrap()
-        .set_char_items(new_data.clone().into());
+        .set_char_items(Rc::clone(&new_data).into());
     main_window_weak.unwrap().set_level(0);
     main_window_weak.unwrap().set_index(0);
 
     // Callback functions on handle keyboard input
-    let char_items_handler = new_data.clone();
+    let char_items_handler = Rc::clone(&new_data);
     main_window.on_handle_keyboard(move |text| {
         if &text as &str == "\n" {
             let mut level = main_window_weak.unwrap().get_level() as usize;
@@ -45,9 +45,7 @@ fn main() {
 
             println!("Trying to submit: {:?}", curr_word);
 
-            let guess = Guess {
-                state: curr_word.to_lowercase(),
-            };
+            let guess = curr_word.to_lowercase();
             if (game.lock().unwrap()).check_valid_guess(&guess) {
                 let res = game.lock().unwrap().grade_guess(&guess);
 
@@ -76,7 +74,7 @@ fn main() {
                         }
                     }
                 }
-                game.lock().unwrap().progress_game(Arc::new(res));
+                game.lock().unwrap().progress_game(&res);
                 if game.lock().unwrap().state == GameState::Correct {
                     main_window_weak.unwrap().set_success(true);
                     println!("Correct Guess!");
@@ -124,10 +122,10 @@ fn main() {
             main_window_weak.unwrap().set_index(index);
         }
     });
-    let main_window_weak = main_window.as_weak().clone();
+    let main_window_weak = main_window.as_weak();
 
     // Callback function on reset games
-    let char_items_handler = new_data.clone();
+    let char_items_handler = new_data;
     main_window.on_reset(move || {
         println!("reset");
         for i in 0..30 {
