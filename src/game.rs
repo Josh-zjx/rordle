@@ -7,6 +7,8 @@ use std::sync::{Arc, OnceLock};
 pub(crate) struct WordList {
     pub(crate) answers: Vec<String>,
     pub(crate) candidates: Vec<String>,
+    pub(crate) candidate_bytes: Box<[[u8; 5]]>,
+    pub(crate) candidate_bitvecs: Box<[u32]>,
 }
 
 impl WordList {
@@ -27,9 +29,31 @@ impl WordList {
         let mut candidates: Vec<String> = serde_json::from_str(&candidate_strings)?;
         candidates.extend(answers.iter().cloned());
 
+        let candidate_bytes: Box<[[u8; 5]]> = candidates
+            .iter()
+            .map(|w| {
+                let mut buf = [0u8; 5];
+                buf.copy_from_slice(w.as_bytes());
+                buf
+            })
+            .collect();
+
+        let candidate_bitvecs: Box<[u32]> = candidate_bytes
+            .iter()
+            .map(|w| {
+                let mut v = 0u32;
+                for b in w.iter() {
+                    v |= 1u32 << (*b - 97);
+                }
+                v
+            })
+            .collect();
+
         Ok(WordList {
             answers,
             candidates,
+            candidate_bytes,
+            candidate_bitvecs,
         })
     }
 }
