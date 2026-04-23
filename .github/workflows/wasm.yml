@@ -1,0 +1,76 @@
+name: WASM
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/**"
+      - "ui/**"
+      - "data/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/build-wasm.sh"
+      - "web/**"
+      - ".github/workflows/wasm.yml"
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wasm_build:
+    name: Build WASM bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable) with wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wasm
+
+      - name: Resolve wasm-bindgen version from Cargo.lock
+        id: wbg
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+            | grep '^version' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Failed to parse wasm-bindgen version from Cargo.lock"
+            exit 1
+          fi
+          echo "Using wasm-bindgen $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen-cli (matching Cargo.lock)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.wbg.outputs.version }}
+
+      - name: Build WASM bundle
+        run: bash scripts/build-wasm.sh
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          test -f web/pkg/rordle_bg.wasm || { echo "::error::missing rordle_bg.wasm"; exit 1; }
+          test -f web/pkg/rordle.js      || { echo "::error::missing rordle.js"; exit 1; }
+          SIZE=$(stat -c%s web/pkg/rordle_bg.wasm)
+          echo "rordle_bg.wasm: $SIZE bytes"
+          if [ "$SIZE" -lt 500000 ]; then
+            echo "::error::WASM artifact suspiciously small ($SIZE bytes)"
+            exit 1
+          fi
+          ls -lh web/pkg/
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rordle-wasm-${{ github.sha }}
+          path: web/pkg/
+          retention-days: 14
