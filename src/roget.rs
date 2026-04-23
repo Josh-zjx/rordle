@@ -1,7 +1,5 @@
-pub mod game;
-pub mod solver;
-use game::*;
-use solver::*;
+use rordle::game::*;
+use rordle::solver::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
 

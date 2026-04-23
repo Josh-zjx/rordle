@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
 use std::error::Error;
-use std::io::prelude::*;
 use std::sync::{Arc, OnceLock};
+
+const ANSWER_DATA: &str = include_str!("../data/answer");
+const CANDIDATE_DATA: &str = include_str!("../data/candidate");
 
 #[derive(Debug)]
 pub(crate) struct WordList {
@@ -13,20 +14,8 @@ pub(crate) struct WordList {
 
 impl WordList {
     fn load() -> Result<WordList, Box<dyn Error>> {
-        let mut answer_strings = String::new();
-        {
-            let mut answer_file = std::fs::File::open("./data/answer")?;
-            answer_file.read_to_string(&mut answer_strings)?;
-        }
-        let answers: Vec<String> = serde_json::from_str(&answer_strings)?;
-
-        let mut candidate_strings = String::new();
-        {
-            let mut candidate_file = std::fs::File::open("./data/candidate")?;
-            candidate_file.read_to_string(&mut candidate_strings)?;
-        }
-
-        let mut candidates: Vec<String> = serde_json::from_str(&candidate_strings)?;
+        let answers: Vec<String> = serde_json::from_str(ANSWER_DATA)?;
+        let mut candidates: Vec<String> = serde_json::from_str(CANDIDATE_DATA)?;
         candidates.extend(answers.iter().cloned());
 
         let candidate_bytes: Box<[[u8; 5]]> = candidates
@@ -132,19 +121,33 @@ impl Game {
     }
     pub fn grade_guess(&self, word: &str) -> Match {
         let mut one_match = Match::new();
-        // Correct pass
-        let mut char_set: BTreeSet<u8> = BTreeSet::new();
         let answer_bytes = self.current_answer().as_bytes();
         let word_bytes = word.as_bytes();
-        char_set.extend(answer_bytes.iter());
 
+        // Build a per-letter count map of the answer
+        let mut counts = [0u8; 26];
+        for &byte in answer_bytes.iter() {
+            counts[(byte - b'a') as usize] += 1;
+        }
+
+        // First pass: mark correct positions and decrement counts
         for i in 0..5 {
             if word_bytes[i] == answer_bytes[i] {
                 one_match.states[i] = GuessState::Correct;
-            } else if char_set.contains(&word_bytes[i]) {
-                one_match.states[i] = GuessState::Misplace;
-            } else {
-                one_match.states[i] = GuessState::Wrong;
+                counts[(word_bytes[i] - b'a') as usize] -= 1;
+            }
+        }
+
+        // Second pass: mark misplace or wrong for non-correct positions
+        for i in 0..5 {
+            if one_match.states[i] != GuessState::Correct {
+                let letter_index = (word_bytes[i] - b'a') as usize;
+                if counts[letter_index] > 0 {
+                    one_match.states[i] = GuessState::Misplace;
+                    counts[letter_index] -= 1;
+                } else {
+                    one_match.states[i] = GuessState::Wrong;
+                }
             }
         }
         one_match
@@ -175,6 +178,8 @@ impl Game {
 
         self.answer_index = index;
         self.custom_answer = None;
+        self.round = 0;
+        self.state = GameState::On;
     }
 }
 
@@ -189,30 +194,18 @@ impl Default for Match {
 }
 impl Match {
     pub fn is_correct(&self) -> bool {
-        self.states[0] == GuessState::Correct
-            && self.states[1] == GuessState::Correct
-            && self.states[2] == GuessState::Correct
-            && self.states[3] == GuessState::Correct
-            && self.states[4] == GuessState::Correct
+        self.states.iter().all(|&s| s == GuessState::Correct)
     }
     pub fn new() -> Match {
         Match {
-            states: [
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-                GuessState::Wrong,
-            ],
+            states: [GuessState::Wrong; 5],
         }
     }
 }
 #[derive(PartialEq, Debug)]
 pub enum GameState {
     On,
-    ReadyForCheck,
     Correct,
-    Over,
 }
 #[cfg(test)]
 mod tests {
@@ -236,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn word_list_loads_answers_and_candidates_from_disk() {
+    fn word_list_loads_answers_and_candidates_from_embedded_data() {
         let words = WordList::load().expect("failed to load word list test data");
 
         assert!(!words.answers.is_empty());
@@ -349,5 +342,46 @@ mod tests {
     fn match_is_correct_only_when_every_slot_is_correct() {
         assert!(correct_match().is_correct());
         assert!(!Match::new().is_correct());
+    }
+
+    #[test]
+    fn grade_guess_handles_duplicate_letters_in_guess() {
+        let mut game = Game::new();
+        game.set_game_with_answer("apple");
+
+        let one_match = game.grade_guess("eerie");
+
+        assert_eq!(
+            one_match.states,
+            [
+                GuessState::Wrong,
+                GuessState::Wrong,
+                GuessState::Wrong,
+                GuessState::Wrong,
+                GuessState::Correct,
+            ]
+        );
+    }
+
+    #[test]
+    fn grade_guess_caps_misplace_by_answer_letter_count() {
+        let mut game = Game::new();
+        game.set_game_with_answer("apple");
+
+        // Position 0 is an exact 'a' match, consuming the answer's single 'a'.
+        // The remaining four 'a's in the guess must all be Wrong — not
+        // Misplace — because the answer has no more 'a's to account for them.
+        let one_match = game.grade_guess("aaaaa");
+
+        assert_eq!(
+            one_match.states,
+            [
+                GuessState::Correct,
+                GuessState::Wrong,
+                GuessState::Wrong,
+                GuessState::Wrong,
+                GuessState::Wrong,
+            ]
+        );
     }
 }

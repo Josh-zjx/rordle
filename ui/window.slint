@@ -1,73 +1,155 @@
-    struct CharItem {
-        text: string,
-        trial:bool,
-        correct:bool,
-        misplaced:bool,
-        nonexist:bool,
+struct CharItem {
+    text: string,
+    trial: bool,
+    correct: bool,
+    misplaced: bool,
+}
+
+component CharBlock inherits Rectangle {
+    in property <string> show_char;
+    in property <bool> trial;
+    in property <bool> correct;
+    in property <bool> misplaced;
+
+    width: 60px;
+    height: 60px;
+    border-radius: 6px;
+    background: trial
+        ? #FFFFFF
+        : (correct ? #6AAA64 : (misplaced ? #C9B458 : #787C7E));
+    border-width: trial ? 2px : 0px;
+    border-color: show_char == "" ? #D3D6DA : #878A8C;
+
+    animate background { duration: 180ms; easing: ease-out; }
+    animate border-color { duration: 140ms; easing: ease-out; }
+
+    Text {
+        text: show_char;
+        font-size: 30px;
+        font-weight: 700;
+        color: trial ? #1A1A1B : #FFFFFF;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
-    component CharBlock inherits Rectangle{
+}
 
-        width: 60px;
-        height: 60px;
-        in property <string> show_char;
-        in property <bool> trial;
-        in property <bool> correct;
-        in property <bool> misplaced;
+component ResetButton inherits Rectangle {
+    callback clicked;
 
-        Rectangle{
-            background: trial?#CCD2CC:(correct?#00FF00:(misplaced?#FFFF00:#808080));
-            border-radius:10px;
-        }
-        Text {
-            text: show_char;
-            font-size: 35px;
-        }
+    width: 128px;
+    height: 36px;
+    border-radius: 18px;
+    background: touch.pressed
+        ? #4F8850
+        : (touch.has-hover ? #5E9959 : #6AAA64);
 
+    animate background { duration: 120ms; easing: ease-out; }
+
+    Text {
+        text: "NEW GAME";
+        font-size: 12px;
+        font-weight: 700;
+        color: #FFFFFF;
+        letter-spacing: 2px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 export component MainWindow inherits Window {
-        width: 360px;
-        height: 500px;
-        background: #93939B;
+    width: 400px;
+    height: 600px;
+    background: #FFFFFF;
+    title: "Rordle";
 
+    in property <int> level;
+    in property <int> index;
+    in property <bool> invalid: false;
+    in property <bool> success: false;
+    in property <bool> failed: false;
+    in property <string> answer_text;
+    in property <[CharItem]> char_items: [];
 
-        in property <int> level;
-        in property <int> index;
-        in property <bool> invalid:false;
-		in property <bool> success:false;
-		in property <bool> failed:false;
-        callback handle_keyboard(string);
-        callback reset();
-        FocusScope {
-            key-pressed(event) => {
-               // handle_keyboard(event)
-                root.handle_keyboard(event.text);
-                accept
+    callback handle_keyboard(string);
+    callback reset();
 
-            }
+    FocusScope {
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            root.handle_keyboard(event.text);
+            accept
         }
-        in property <int> curr_level:0;
-        in property <[CharItem]> char_items:[
-        ];
 
-        Rectangle {
-            x: 80px;
-            y:450px;
-            width:200px;
-            height:50px;
-            background:#E2C6C4;
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 22px;
+            padding-bottom: 22px;
+            spacing: 14px;
+
+            // Header
             Text {
-                text:root.success?"Congratulations":failed?"You lost":invalid?"Invalid input":"";
+                text: "WORDLE";
+                font-size: 34px;
+                font-weight: 700;
+                color: #1A1A1B;
+                letter-spacing: 4px;
+                horizontal-alignment: center;
+            }
 
+            Rectangle {
+                height: 1px;
+                background: #D3D6DA;
+            }
+
+            // Board
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 320px;
+                    height: 385px;
+                    for tile[i] in char_items: CharBlock {
+                        x: mod(i, 5) * 65px;
+                        y: floor(i / 5) * 65px;
+                        show_char: tile.text;
+                        trial: tile.trial;
+                        correct: tile.correct;
+                        misplaced: tile.misplaced;
+                    }
+                }
+            }
+
+            // Status
+            Text {
+                height: 22px;
+                text: root.success
+                    ? "You got it!"
+                    : (root.failed
+                        ? "Answer: " + root.answer_text
+                        : (root.invalid ? "Not in word list" : ""));
+                font-size: 15px;
+                font-weight: 600;
+                color: root.success
+                    ? #6AAA64
+                    : (root.failed
+                        ? #1A1A1B
+                        : (root.invalid ? #B85450 : #1A1A1B));
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            // Footer
+            HorizontalLayout {
+                alignment: center;
+                ResetButton {
+                    clicked => { root.reset(); }
+                }
             }
         }
-
-        for tile[i] in char_items: CharBlock {
-            x: mod(i,5) * 70px + 10px;
-            y: floor(i / 5) * 70px + 10px;
-            show_char:tile.text;
-            trial:tile.trial;
-            correct:tile.correct;
-            misplaced:tile.misplaced;
-        }
-
+    }
 }

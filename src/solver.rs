@@ -76,6 +76,31 @@ fn char_to_bitvec(c: u8) -> u32 {
     1u32 << (c - 97)
 }
 
+/// Solver-internal grading. Matches the bitset-based semantics that
+/// `try_match_bytes` expects (a letter is "in" the answer if present
+/// anywhere, regardless of duplicate counts). The game's public
+/// `grade_guess` uses correct Wordle duplicate handling for the UI;
+/// the solver must stay on this older semantics so that
+/// `filter_valid_word` does not reject the true answer. See
+/// SOLVER_PERF.md for the quirk this preserves.
+fn solver_grade(answer: &str, guess: &str) -> Match {
+    let answer_bytes = answer.as_bytes();
+    let guess_bytes = guess.as_bytes();
+    let mut answer_mask = 0u32;
+    for &b in answer_bytes {
+        answer_mask |= char_to_bitvec(b);
+    }
+    let mut states = [GuessState::Wrong; 5];
+    for i in 0..5 {
+        if guess_bytes[i] == answer_bytes[i] {
+            states[i] = GuessState::Correct;
+        } else if answer_mask & char_to_bitvec(guess_bytes[i]) != 0 {
+            states[i] = GuessState::Misplace;
+        }
+    }
+    Match { states }
+}
+
 /// Check whether `word`, treated as a hypothetical answer, is consistent with
 /// the guess + observed grading stored in `pattern`. Uses the grade_guess
 /// direction (guess letter probed against answer's letter set).
@@ -282,7 +307,7 @@ impl Solver {
         if !game.check_valid_guess(guess_word) {
             return None;
         }
-        let one_match = game.grade_guess(guess_word);
+        let one_match = solver_grade(game.answer(), guess_word);
         let guess_chars = guess_word
             .as_bytes()
             .try_into()
