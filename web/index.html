@@ -5,74 +5,473 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rordle</title>
     <style>
+        :root {
+            --green: #6aaa64;
+            --yellow: #c9b458;
+            --gray: #787c7e;
+            --ink: #1a1a1b;
+            --muted: #5f6368;
+            --line: #d3d6da;
+            --ground: #f5f5f2;
+            --card: #ffffff;
+            --key: #e4e6e8;
+            --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; }
+
         html, body {
             margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            background: #f5f5f7;
+            background: var(--ground);
+            color: var(--ink);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            color: #1a1a1b;
+            line-height: 1.5;
         }
 
-        body {
+        body { padding-inline: 20px; }
+
+        .wrap { max-width: 1040px; margin: 0 auto; }
+
+        header {
             display: flex;
-            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 24px 12px;
-            box-sizing: border-box;
+            justify-content: space-between;
+            gap: 16px;
+            padding-block: 20px;
+            border-bottom: 1px solid var(--line);
         }
 
-        #app {
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
-            border-radius: 12px;
+        .wordmark { display: flex; gap: 4px; }
+        .wordmark span {
+            width: 28px;
+            height: 28px;
+            display: grid;
+            place-items: center;
+            border-radius: 4px;
+            font-weight: 800;
+            font-size: 15px;
+            color: #fff;
+            background: var(--gray);
+        }
+        .wordmark .g { background: var(--green); }
+        .wordmark .y { background: var(--yellow); }
+
+        header a {
+            color: var(--muted);
+            font-size: 14px;
+            text-decoration: none;
+        }
+        header a:hover { color: var(--ink); }
+
+        /* ---------- Hero: pitch + live game ---------- */
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 56px;
+            align-items: center;
+            padding-block: 48px;
+        }
+
+        .eyebrow {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--green);
+            margin: 0 0 12px;
+        }
+
+        h1 {
+            font-size: clamp(32px, 5vw, 48px);
+            line-height: 1.08;
+            letter-spacing: -0.02em;
+            margin: 0 0 18px;
+        }
+
+        .lede {
+            font-size: 18px;
+            color: var(--muted);
+            max-width: 34em;
+            margin: 0 0 32px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin: 0;
+            max-width: 480px;
+        }
+        .stats div {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .stats dt { font-size: 12px; color: var(--muted); }
+        .stats dd {
+            margin: 2px 0 0;
+            font-size: 22px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 20px;
+            margin-top: 28px;
+            font-size: 14px;
+            color: var(--muted);
+        }
+        .legend span { display: inline-flex; align-items: center; gap: 8px; }
+        .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+        /* ---------- Game stage ---------- */
+
+        .stage { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+        .frame {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            border-radius: 14px;
             overflow: hidden;
-            background: #ffffff;
+            background: var(--card);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.09), 0 2px 6px rgba(0, 0, 0, 0.05);
         }
 
-        canvas {
+        /* Slint looks this canvas up by id="canvas". Its size must match the
+           fixed 400x600 MainWindow declared in ui/window.slint. */
+        #canvas {
             display: block;
+            width: 400px;
+            height: 600px;
             outline: none;
         }
 
-        #loader {
+        .overlay {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            text-align: center;
+            background: var(--card);
+            color: var(--muted);
             font-size: 14px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: #787c7e;
+            transition: opacity 200ms ease-out;
+        }
+        .overlay.error { color: #b85450; font-family: var(--mono); font-size: 12px; }
+        .overlay.done { opacity: 0; pointer-events: none; }
+
+        .spinner { display: flex; gap: 5px; justify-content: center; margin-bottom: 12px; }
+        .spinner i {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            background: var(--line);
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .spinner i:nth-child(2) { animation-delay: 0.15s; }
+        .spinner i:nth-child(3) { animation-delay: 0.3s; }
+        .spinner i:nth-child(4) { animation-delay: 0.45s; }
+        .spinner i:nth-child(5) { animation-delay: 0.6s; }
+        @keyframes pulse {
+            0%, 100% { background: var(--line); }
+            40% { background: var(--green); }
+            70% { background: var(--yellow); }
         }
 
-        footer {
-            margin-top: 16px;
-            font-size: 12px;
-            color: #787c7e;
-            letter-spacing: 1px;
+        .hint { font-size: 13px; color: var(--muted); margin: 0; min-height: 1.5em; }
+
+        /* On-screen keyboard: forwards key events into the Slint canvas so the
+           game is playable on touch devices too. */
+        .keyboard { display: flex; flex-direction: column; gap: 6px; width: 400px; }
+        .keyboard .row { display: flex; gap: 5px; justify-content: center; }
+        .keyboard button {
+            flex: 1 1 0;
+            min-width: 0;
+            height: 46px;
+            border: 0;
+            border-radius: 5px;
+            background: var(--key);
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
             text-transform: uppercase;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .keyboard button.wide { flex-grow: 1.6; font-size: 11px; }
+        .keyboard button:hover { background: #d6d8db; }
+        .keyboard button:active { background: #c4c7ca; }
+        .keyboard button:disabled { opacity: 0.5; cursor: default; }
+
+        /* ---------- How it's built ---------- */
+
+        section.how { padding-block: 40px 56px; border-top: 1px solid var(--line); }
+        section.how h2 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 24px; }
+
+        .pipeline {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            counter-reset: step;
+            list-style: none;
+            padding: 0;
+            margin: 0 0 32px;
+        }
+        .pipeline li {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 18px;
+            counter-increment: step;
+        }
+        .pipeline li::before {
+            content: counter(step);
+            display: grid;
+            place-items: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            background: var(--green);
+            color: #fff;
+            font-weight: 700;
+            font-size: 13px;
+        }
+        .pipeline li:nth-child(even)::before { background: var(--yellow); }
+        .pipeline h3 { font-size: 15px; margin: 0 0 6px; }
+        .pipeline p { font-size: 14px; color: var(--muted); margin: 0; }
+
+        code { font-family: var(--mono); font-size: 0.88em; }
+        p code, li code { background: #ebebe6; padding: 1px 5px; border-radius: 4px; }
+
+        pre {
+            margin: 0;
+            padding: 18px 20px;
+            border-radius: 10px;
+            background: #1f2023;
+            color: #e8e8e3;
+            font-size: 13px;
+            line-height: 1.7;
+            overflow-x: auto;
+        }
+        pre .c { color: #8a8d91; }
+
+        footer {
+            padding-block: 20px 32px;
+            border-top: 1px solid var(--line);
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        /* ---------- Responsive ---------- */
+
+        @media (max-width: 900px) {
+            .hero { grid-template-columns: 1fr; gap: 36px; padding-block: 32px; }
+            .stage { order: -1; }
+            .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        /* The Slint window has a fixed logical size, so on narrow phones we
+           scale the frame visually. Pointer coordinates are transform-aware. */
+        @media (max-width: 440px) {
+            body { padding-inline: 16px; }
+            .frame-box { width: calc(100vw - 32px); height: calc((100vw - 32px) * 1.5); }
+            .frame { transform-origin: top left; transform: scale(var(--k, 1)); }
+            .keyboard { width: 100%; }
+            .keyboard button { height: 42px; }
+            .stats { grid-template-columns: 1fr; }
+            .pipeline { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div id="loader">Loading…</div>
-    <div id="app"></div>
-    <footer>Rordle · Built with Rust + Slint · WebAssembly</footer>
+<div class="wrap">
+    <header>
+        <div class="wordmark" aria-label="Rordle">
+            <span class="g">R</span><span>O</span><span class="y">R</span><span>D</span><span class="g">L</span><span>E</span>
+        </div>
+        <a href="https://github.com/Josh-zjx/rordle">GitHub →</a>
+    </header>
 
-    <script type="module">
-        import init from "./pkg/rordle.js";
+    <main>
+        <div class="hero">
+            <div>
+                <p class="eyebrow">Rust · Slint · WebAssembly</p>
+                <h1>Wordle, written in Rust, running in your browser.</h1>
+                <p class="lede">
+                    The same game logic and Slint UI that power the desktop app,
+                    compiled to <code>wasm32-unknown-unknown</code>. No server,
+                    no JavaScript game code — just a canvas.
+                </p>
 
-        const loader = document.getElementById("loader");
-        init()
-            .then(() => {
-                loader.remove();
-            })
-            .catch((err) => {
-                loader.textContent = "Failed to load: " + err;
-                console.error(err);
-            });
-    </script>
+                <dl class="stats">
+                    <div><dt>Answer words</dt><dd>2,309</dd></div>
+                    <div><dt>Valid guesses</dt><dd>12,974</dd></div>
+                    <div><dt>Solver average</dt><dd>4.13</dd></div>
+                </dl>
+
+                <div class="legend" aria-hidden="true">
+                    <span><i style="background: var(--green)"></i>Right spot</span>
+                    <span><i style="background: var(--yellow)"></i>Wrong spot</span>
+                    <span><i style="background: var(--gray)"></i>Not in word</span>
+                </div>
+            </div>
+
+            <div class="stage">
+                <div class="frame-box">
+                    <div class="frame">
+                        <canvas id="canvas" width="400" height="600"></canvas>
+                        <div class="overlay" id="overlay">
+                            <div>
+                                <div class="spinner"><i></i><i></i><i></i><i></i><i></i></div>
+                                Loading WebAssembly…
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="hint" id="hint">&nbsp;</p>
+                <div class="keyboard" id="keyboard" aria-label="On-screen keyboard"></div>
+            </div>
+        </div>
+
+        <section class="how">
+            <h2>How it's built</h2>
+            <ol class="pipeline">
+                <li>
+                    <h3>Game core</h3>
+                    <p><code>src/game.rs</code> grades guesses with the two-pass duplicate-letter rule. Word lists are baked in with <code>include_str!</code>.</p>
+                </li>
+                <li>
+                    <h3>Slint UI</h3>
+                    <p><code>ui/window.slint</code> is compiled to Rust at build time; <code>src/ui.rs</code> wires keyboard and reset callbacks.</p>
+                </li>
+                <li>
+                    <h3>WASM entry</h3>
+                    <p><code>src/web.rs</code> is a <code>#[wasm_bindgen(start)]</code> function that installs a panic hook and runs the window.</p>
+                </li>
+                <li>
+                    <h3>Canvas</h3>
+                    <p>Slint's winit backend binds to <code>&lt;canvas id="canvas"&gt;</code> and renders the board with WebGL.</p>
+                </li>
+            </ol>
+
+            <pre><code><span class="c"># one-time setup</span>
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli
+
+<span class="c"># build web/pkg/ and serve this page</span>
+scripts/build-wasm.sh
+python3 -m http.server --directory web 8080</code></pre>
+        </section>
+    </main>
+
+    <footer>Rordle · Built with Rust + Slint · Rendered by WebAssembly</footer>
+</div>
+
+<script type="module">
+    import init from "./pkg/rordle.js";
+
+    const canvas = document.getElementById("canvas");
+    const overlay = document.getElementById("overlay");
+    const hint = document.getElementById("hint");
+    const keyboard = document.getElementById("keyboard");
+    const frame = document.querySelector(".frame");
+
+    // winit's web event loop never returns: it throws this sentinel after
+    // scheduling itself on the browser's event loop. It is not a failure.
+    const isControlFlowException = (e) =>
+        String(e?.message ?? e).includes("Using exceptions for control flow");
+
+    // ---- Keyboard forwarding -------------------------------------------------
+
+    const KEY_CODES = { Enter: "Enter", Backspace: "Backspace" };
+    const codeFor = (key) => KEY_CODES[key] ?? `Key${key.toUpperCase()}`;
+
+    function sendKey(key) {
+        const init = { key, code: codeFor(key), bubbles: true, cancelable: true };
+        canvas.dispatchEvent(new KeyboardEvent("keydown", init));
+        canvas.dispatchEvent(new KeyboardEvent("keyup", init));
+    }
+
+    const isGameKey = (e) =>
+        !e.ctrlKey && !e.metaKey && !e.altKey &&
+        (e.key === "Enter" || e.key === "Backspace" || /^[a-zA-Z]$/.test(e.key));
+
+    // Typing anywhere on the page plays the game, not only when the canvas has focus.
+    document.addEventListener("keydown", (e) => {
+        if (e.target === canvas || !isGameKey(e) || !canvas.dataset.ready) return;
+        e.preventDefault();
+        sendKey(e.key);
+    });
+
+    const rows = ["qwertyuiop", "asdfghjkl", "↵zxcvbnm⌫"];
+    for (const letters of rows) {
+        const row = document.createElement("div");
+        row.className = "row";
+        for (const ch of letters) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.disabled = true;
+            if (ch === "↵") {
+                btn.textContent = "Enter";
+                btn.dataset.key = "Enter";
+                btn.className = "wide";
+            } else if (ch === "⌫") {
+                btn.textContent = "⌫";
+                btn.dataset.key = "Backspace";
+                btn.className = "wide";
+                btn.setAttribute("aria-label", "Backspace");
+            } else {
+                btn.textContent = ch;
+                btn.dataset.key = ch;
+            }
+            row.appendChild(btn);
+        }
+        keyboard.appendChild(row);
+    }
+    keyboard.addEventListener("click", (e) => {
+        const key = e.target.closest("button")?.dataset.key;
+        if (key) sendKey(key);
+    });
+
+    // ---- Narrow screens: scale the fixed 400x600 frame ----------------------
+
+    function fitFrame() {
+        const k = Math.min(1, (window.innerWidth - 32) / 400);
+        frame.style.setProperty("--k", k);
+    }
+    window.addEventListener("resize", fitFrame);
+    fitFrame();
+
+    // ---- Boot ----------------------------------------------------------------
+
+    function ready() {
+        canvas.dataset.ready = "1";
+        overlay.classList.add("done");
+        keyboard.querySelectorAll("button").forEach((b) => (b.disabled = false));
+        hint.textContent = "Type a five-letter word and press Enter.";
+        canvas.focus({ preventScroll: true });
+    }
+
+    try {
+        await init();
+        ready();
+    } catch (e) {
+        if (isControlFlowException(e)) {
+            ready();
+        } else {
+            console.error(e);
+            overlay.classList.add("error");
+            overlay.textContent = `Failed to start: ${e?.message ?? e}`;
+        }
+    }
+</script>
 </body>
 </html>
