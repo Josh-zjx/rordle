@@ -1,59 +1,61 @@
-# CLAUDE.md
+# Project guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-Rordle is a Rust implementation of Wordle with two binaries:
-- `game` — a GUI Wordle game built with Slint
-- `solver` — a CLI solver that benchmarks the solving algorithm against all answer words
+Rordle is a Rust Wordle game with a Slint desktop UI, a WASM library, and an
+optional native solver benchmark.
 
 ## Commands
 
 ```bash
-# Build
-cargo build
-cargo build --release
-
-# Run the GUI game
+cargo build --locked --bin game
 cargo run --bin game
-
-# Run the solver benchmark (solves all ~2300 answer words in parallel, prints stats)
-cargo run --bin solver --release
-
-# Run tests
-cargo test
-
-# Run a single test
-cargo test <test_name>
-
-# Lint
-cargo clippy
+cargo test --locked --all-targets --features solver
+cargo clippy --locked --all-targets --features solver -- -D warnings
+cargo fmt --check
+cargo run --release --features solver --bin solver -- --check
+cargo run --release --features solver --bin solver -- --word cigar
+cargo check --locked --target wasm32-unknown-unknown --all-targets
+scripts/build-wasm.sh
 ```
 
-**Important:** All binaries must be run from the repo root. The game and solver load word lists from `./data/answer`, `./data/candidate`, and `./data/cache` at runtime relative to the current working directory.
+The solver module and binary require the native-only `solver` feature. GUI and
+WASM builds do not need it. All word data is embedded at compile time; executables
+can run from any working directory.
 
 ## Architecture
 
-### Modules
+- `src/game.rs`: validated `Word` values, shared duplicate-aware grading, game
+  state, and a shared immutable word list. String-based grading and answer
+  setters return `Result`; malformed input leaves game state unchanged.
+- `src/solver.rs`: entropy scoring over all allowed guesses, incremental
+  filtering, and a lazy second-guess cache. `Solver::bind` is infallible.
+  `add_pattern` validates the word and immediately applies feedback.
+- `src/roget.rs`: native benchmark. Rayon distributes games; worker-local
+  statistics are reduced without shared counters. `--check` enforces regression
+  limits, and `--word WORD` prints one solve trace.
+- `src/ui.rs`: Slint callbacks and the flat 30-cell board model.
+- `src/play.rs`: desktop entry point.
+- `src/web.rs`: WASM startup and panic hook.
+- `src/build.rs` and `ui/window.slint`: compile-time Slint UI integration.
+- `scripts/build-wasm.sh` and `web/index.html`: WASM packaging and browser host.
 
-- `src/game.rs` — Core game logic: `Game`, `Match`, `GuessState`, `GameState`, `WordList`. `WordList` is loaded once via a `OnceLock<Arc<WordList>>` singleton and shared across instances.
-- `src/solver.rs` — The `Solver` struct that implements entropy-based word selection. Uses a precomputed `valid_table` (bool vec indexed by candidate position) to track remaining candidates after each guess.
-- `src/play.rs` — Binary entry point for the GUI. Wires Slint callbacks (`on_handle_keyboard`, `on_reset`) to `Game` methods.
-- `src/roget.rs` — Binary entry point for the solver benchmark. Runs `solve_all()` using 8 threads via `std::thread`.
-- `src/build.rs` — Build script: compiles `ui/window.slint` via `slint_build`.
-- `ui/window.slint` — Slint UI definition for the 6×5 character grid and status messages.
+## Solver invariants
 
-### Solver Algorithm
+The complete allowed-guess dictionary intentionally remains the initial answer
+hypothesis pool. An empty pool intentionally retains the lowest-index,
+zero-entropy guess fallback. Do not replace either behavior.
 
-The solver selects guesses using information entropy: for each candidate word, it computes the Shannon entropy of the distribution of `grade_pair()` outcomes across all still-valid candidates. The opening word is hard-coded as `"tares"`. After each guess, `add_pattern()` stores the result and `filter_valid_word()` eliminates incompatible candidates.
+The game, candidate filtering, and entropy partitions use the same Wordle
+duplicate-letter rules. The second-guess cache is populated per observed
+`tares` pattern, and only applies after exactly one observation. Filtering
+retains prior constraints; reset reuses vector capacity.
 
-### Data Files
+## Data and verification
 
-- `data/answer` — JSON array of valid answer words
-- `data/candidate` — JSON array of additional valid guesses (non-answer words); answers are appended to candidates at load time
-- `data/cache` — Read by `Solver::bind()` (currently unused in logic but required to exist)
+`data/answer` and `data/candidate` are embedded JSON word arrays. Loading
+validates five lowercase ASCII letters per word and a nonempty answer list.
+`data/cache` is a historical unused file.
 
-### Slint UI Integration
-
-The `.slint` file is compiled at build time by `slint_build`. The generated Rust types (e.g. `MainWindow`, `CharItem`) are included via `slint::include_modules!()` in `play.rs`. UI state is driven by a flat `Vec<CharItem>` of 30 elements (6 rows × 5 columns), indexed as `row * 5 + col`.
+Library tests cover malformed inputs, duplicate grading, externally supplied
+feedback, candidate retention, cache correctness, and representative solves.
+The native benchmark checks the entire answer list. See `SOLVER_PERF.md` for
+measurement commands and the current algorithm.

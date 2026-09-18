@@ -53,7 +53,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let guess = curr_word.to_lowercase();
             let mut game = game_handle.borrow_mut();
             if game.check_valid_guess(&guess) {
-                let res = game.grade_guess(&guess);
+                let Ok(res) = game.grade_guess(&guess) else {
+                    window.set_invalid(true);
+                    return;
+                };
 
                 for i in 0..5 {
                     let index = level * 5 + i;
@@ -100,12 +103,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             }
             window.set_index(index);
             window.set_invalid(false);
-        } else if text.len() == 1
-            && text
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic())
-        {
+        } else if text.len() == 1 && text.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
             if window.get_success() || window.get_failed() {
                 return;
             }

@@ -1,128 +1,163 @@
-use rordle::game::*;
-use rordle::solver::*;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use rayon::prelude::*;
+use rordle::game::Game;
+use rordle::solver::Solver;
+use std::process::ExitCode;
+use std::time::Instant;
 
-fn main() {
-    //solve_one();
-    solve_all();
+const MAX_ATTEMPTS: usize = 21;
+// Regression limits for the full answer list using proper Wordle feedback.
+const MAX_AVERAGE: f64 = 4.2;
+const MAX_FAILURES: usize = 0;
+
+#[derive(Debug, Default)]
+struct Stats {
+    games: usize,
+    attempts: usize,
+    failures: usize,
+    unsolved: usize,
 }
 
-#[allow(dead_code)]
-fn solve_one() {
-    let mut game = Game::new();
-    let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
-    game.set_game_with_answer("zonal");
-    println!("answer is {:}", game.answer());
+impl Stats {
+    fn record(&mut self, attempts: usize, solved: bool) {
+        self.games += 1;
+        self.attempts += attempts;
+        self.failures += usize::from(!solved || attempts > 6);
+        self.unsolved += usize::from(!solved);
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        self.games += other.games;
+        self.attempts += other.attempts;
+        self.failures += other.failures;
+        self.unsolved += other.unsolved;
+        self
+    }
+
+    fn average(&self) -> Option<f64> {
+        (self.games > 0).then(|| self.attempts as f64 / self.games as f64)
+    }
+
+    fn passes_regression(&self) -> bool {
+        self.unsolved == 0
+            && self.failures == MAX_FAILURES
+            && self.average().is_some_and(|average| average <= MAX_AVERAGE)
+    }
+}
+
+fn run_game(game: &mut Game, solver: &mut Solver, verbose: bool) -> Stats {
     solver.reset();
-    let mut count = 0;
-
-    loop {
-        count += 1;
-        let (guess, score) = solver.new_guess(game.round() as u8);
-
-        println!("{} {} {}", count, guess.as_str(game.candidates()), score);
-
-        let one_match = solver.try_guess(guess, &mut game);
-
-        if one_match.as_ref().is_some_and(Match::is_correct) {
-            break;
+    let mut stats = Stats::default();
+    for round in 0..MAX_ATTEMPTS {
+        let (guess, score) = solver.new_guess(round);
+        if verbose {
+            println!(
+                "{} {} {}",
+                round + 1,
+                guess.as_str(game.candidates()),
+                score
+            );
         }
-        if count > 20 {
-            break;
+        let result = solver
+            .try_guess(guess, game)
+            .expect("solver must choose a dictionary word");
+        if result.is_correct() {
+            stats.record(round + 1, true);
+            return stats;
         }
     }
+    stats.record(MAX_ATTEMPTS, false);
+    stats
 }
 
-#[allow(dead_code)]
-fn solve_all() {
-    let sum = Arc::new(Mutex::new(0));
-    let fail = Arc::new(Mutex::new(0));
-    let unsolve = Arc::new(Mutex::new(0));
-    let count = Arc::new(Mutex::new(0));
-    let total_thread = 8;
-    let mut handlers = Vec::new();
-    for t in 0..total_thread {
-        let sum = Arc::clone(&sum);
-        let fail = Arc::clone(&fail);
-        let unsolve = Arc::clone(&unsolve);
-        let g_count = Arc::clone(&count);
-        let handler = thread::spawn(move || {
+fn solve_all() -> Stats {
+    let total = Game::new().answers().len();
+    (0..total)
+        .into_par_iter()
+        .fold(
+            || {
+                let game = Game::new();
+                let solver = Solver::bind(&game);
+                (game, solver, Stats::default())
+            },
+            |(mut game, mut solver, stats), index| {
+                game.set_game_with_answer_index(index)
+                    .expect("enumerated answer index");
+                let result = run_game(&mut game, &mut solver, false);
+                (game, solver, stats.merge(result))
+            },
+        )
+        .map(|(_, _, stats)| stats)
+        .reduce(Stats::default, Stats::merge)
+}
+
+fn main() -> ExitCode {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let start = Instant::now();
+    let (stats, check) = match args.as_slice() {
+        [] => (solve_all(), false),
+        [flag] if flag == "--check" => (solve_all(), true),
+        [flag, answer] if flag == "--word" => {
             let mut game = Game::new();
-            let mut solver = Solver::bind(&game).expect("failed to bind solver to game data");
-            let total_run = game.answers().len();
-            //let total_run = 1;
-            let offset = t;
-            for i in 0..total_run {
-                if i % total_thread == offset {
-                    game.set_game_with_answer_index(i);
-                    solver.reset();
-                    let mut count = 0;
-
-                    loop {
-                        count += 1;
-                        let (guess, _score) = solver.new_guess(game.round() as u8);
-
-                        let one_match = solver.try_guess(guess, &mut game);
-
-                        if one_match.as_ref().is_some_and(Match::is_correct) {
-                            *g_count
-                                .lock()
-                                .expect("attempt counter mutex should not be poisoned") += count;
-                            if count > 6 {
-                                let mut fail_handler = fail
-                                    .lock()
-                                    .expect("failure counter mutex should not be poisoned");
-                                *fail_handler += 1;
-                            }
-                            break;
-                        }
-                        if count > 20 {
-                            {
-                                let mut unsolve_handler = unsolve
-                                    .lock()
-                                    .expect("unsolved counter mutex should not be poisoned");
-                                *unsolve_handler += 1;
-                            }
-                            break;
-                        }
-                    }
-                    let mut sum_handler = sum
-                        .lock()
-                        .expect("completed-game counter mutex should not be poisoned");
-                    *sum_handler += 1;
-                }
+            if let Err(error) = game.set_game_with_answer(answer) {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
             }
-        });
-        handlers.push(handler);
+            let mut solver = Solver::bind(&game);
+            (run_game(&mut game, &mut solver, true), false)
+        }
+        _ => {
+            eprintln!("usage: solver [--check | --word WORD]");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("Total games: {}", stats.games);
+    println!(
+        "Total guesses (including unsolved games): {}",
+        stats.attempts
+    );
+    println!(
+        "Total failures (over six guesses or unsolved): {}",
+        stats.failures
+    );
+    println!("Total unsolved: {}", stats.unsolved);
+    if let Some(average) = stats.average() {
+        println!("Average trials (unsolved capped at {MAX_ATTEMPTS}): {average}");
     }
-    for h in handlers.into_iter() {
-        h.join().expect("solver thread should not panic");
+    println!("Elapsed: {:?}", start.elapsed());
+    if check && !stats.passes_regression() {
+        eprintln!("solver regression: expected no unsolved games, at most {MAX_FAILURES} failures, and average <= {MAX_AVERAGE}");
+        return ExitCode::FAILURE;
     }
-    println!(
-        "Total attempts: {:}",
-        *sum.lock()
-            .expect("completed-game counter mutex should not be poisoned")
-    );
-    println!(
-        "Total failures: {:}",
-        *fail
-            .lock()
-            .expect("failure counter mutex should not be poisoned")
-    );
-    println!(
-        "Total unsolved: {:}",
-        *unsolve
-            .lock()
-            .expect("unsolved counter mutex should not be poisoned")
-    );
-    println!(
-        "Average Trial: {:}",
-        *count
-            .lock()
-            .expect("attempt counter mutex should not be poisoned") as f64
-            / *sum
-                .lock()
-                .expect("completed-game counter mutex should not be poisoned") as f64
-    );
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statistics_include_unsolved_attempts_and_failures() {
+        let mut stats = Stats::default();
+        stats.record(4, true);
+        let mut other = Stats::default();
+        other.record(MAX_ATTEMPTS, false);
+        let stats = stats.merge(other);
+        assert_eq!(stats.games, 2);
+        assert_eq!(stats.attempts, 25);
+        assert_eq!(stats.failures, 1);
+        assert_eq!(stats.unsolved, 1);
+        assert_eq!(stats.average(), Some(12.5));
+        assert!(!stats.passes_regression());
+    }
+
+    #[test]
+    fn regression_check_rejects_empty_and_degraded_runs() {
+        assert!(!Stats::default().passes_regression());
+        let mut good = Stats::default();
+        good.record(4, true);
+        assert!(good.passes_regression());
+        let mut slow = Stats::default();
+        slow.record(5, true);
+        assert!(!slow.passes_regression());
+    }
 }

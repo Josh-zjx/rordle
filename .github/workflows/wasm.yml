@@ -34,6 +34,9 @@ jobs:
         with:
           shared-key: wasm
 
+      - name: Check WASM targets
+        run: cargo check --locked --target wasm32-unknown-unknown --all-targets
+
       - name: Resolve wasm-bindgen version from Cargo.lock
         id: wbg
         run: |

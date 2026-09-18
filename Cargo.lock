@@ -3790,7 +3790,6 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
- "tracing",
  "wasm-bindgen",
 ]
 

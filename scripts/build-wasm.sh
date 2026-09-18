@@ -35,8 +35,8 @@ if ! command -v "$WASM_BINDGEN_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo ">>> cargo build --lib --target wasm32-unknown-unknown ${CARGO_PROFILE_FLAG}"
-cargo build --lib --target wasm32-unknown-unknown ${CARGO_PROFILE_FLAG}
+echo ">>> cargo build --locked --lib --target wasm32-unknown-unknown ${CARGO_PROFILE_FLAG}"
+cargo build --locked --lib --target wasm32-unknown-unknown ${CARGO_PROFILE_FLAG}
 
 WASM_INPUT="target/wasm32-unknown-unknown/${PROFILE_DIR}/rordle.wasm"
 OUTPUT_DIR="web/pkg"

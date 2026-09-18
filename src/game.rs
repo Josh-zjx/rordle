@@ -1,15 +1,95 @@
 use std::error::Error;
+use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 const ANSWER_DATA: &str = include_str!("../data/answer");
 const CANDIDATE_DATA: &str = include_str!("../data/candidate");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameError {
+    InvalidWord,
+    InvalidAnswerIndex(usize),
+    EmptyAnswerList,
+}
+
+impl fmt::Display for GameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidWord => {
+                f.write_str("a word must contain exactly five lowercase ASCII letters")
+            }
+            Self::InvalidAnswerIndex(index) => write!(f, "answer index {index} is out of bounds"),
+            Self::EmptyAnswerList => f.write_str("the answer list must not be empty"),
+        }
+    }
+}
+
+impl Error for GameError {}
+
+/// A validated five-letter word. Dictionary membership is checked separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Word([u8; 5]);
+
+impl TryFrom<[u8; 5]> for Word {
+    type Error = GameError;
+
+    fn try_from(bytes: [u8; 5]) -> Result<Self, Self::Error> {
+        if bytes.iter().all(u8::is_ascii_lowercase) {
+            Ok(Self(bytes))
+        } else {
+            Err(GameError::InvalidWord)
+        }
+    }
+}
+
+impl TryFrom<&str> for Word {
+    type Error = GameError;
+
+    fn try_from(text: &str) -> Result<Self, Self::Error> {
+        let bytes: [u8; 5] = text
+            .as_bytes()
+            .try_into()
+            .map_err(|_| GameError::InvalidWord)?;
+        Self::try_from(bytes)
+    }
+}
+
+impl Word {
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).expect("Word contains only ASCII letters")
+    }
+
+    /// Grade a guess against this answer, consuming exact matches first.
+    #[inline]
+    pub(crate) fn grade(self, guess: Self) -> Match {
+        let mut result = Match::new();
+        let mut counts = [0u8; 26];
+        for &letter in &self.0 {
+            counts[(letter - b'a') as usize] += 1;
+        }
+        for ((state, &letter), &answer) in result.states.iter_mut().zip(&guess.0).zip(&self.0) {
+            if letter == answer {
+                *state = GuessState::Correct;
+                counts[(letter - b'a') as usize] -= 1;
+            }
+        }
+        for (state, &letter) in result.states.iter_mut().zip(&guess.0) {
+            let count = &mut counts[(letter - b'a') as usize];
+            if *state != GuessState::Correct && *count > 0 {
+                *state = GuessState::Misplace;
+                *count -= 1;
+            }
+        }
+        result
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct WordList {
     pub(crate) answers: Vec<String>,
     pub(crate) candidates: Vec<String>,
-    pub(crate) candidate_bytes: Box<[[u8; 5]]>,
-    pub(crate) candidate_bitvecs: Box<[u32]>,
+    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
+    candidate_words: OnceLock<Box<[Word]>>,
 }
 
 impl WordList {
@@ -17,32 +97,30 @@ impl WordList {
         let answers: Vec<String> = serde_json::from_str(ANSWER_DATA)?;
         let mut candidates: Vec<String> = serde_json::from_str(CANDIDATE_DATA)?;
         candidates.extend(answers.iter().cloned());
-
-        let candidate_bytes: Box<[[u8; 5]]> = candidates
-            .iter()
-            .map(|w| {
-                let mut buf = [0u8; 5];
-                buf.copy_from_slice(w.as_bytes());
-                buf
-            })
-            .collect();
-
-        let candidate_bitvecs: Box<[u32]> = candidate_bytes
-            .iter()
-            .map(|w| {
-                let mut v = 0u32;
-                for b in w.iter() {
-                    v |= 1u32 << (*b - 97);
-                }
-                v
-            })
-            .collect();
+        if answers.is_empty() {
+            return Err(GameError::EmptyAnswerList.into());
+        }
+        for word in &candidates {
+            Word::try_from(word.as_str())?;
+        }
 
         Ok(WordList {
             answers,
             candidates,
-            candidate_bytes,
-            candidate_bitvecs,
+            #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
+            candidate_words: OnceLock::new(),
+        })
+    }
+
+    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
+    pub(crate) fn candidate_words(&self) -> &[Word] {
+        self.candidate_words.get_or_init(|| {
+            self.candidates
+                .iter()
+                .map(|word| {
+                    Word::try_from(word.as_str()).expect("word list was validated at load time")
+                })
+                .collect()
         })
     }
 }
@@ -67,8 +145,7 @@ pub enum GuessState {
 #[derive(Debug)]
 pub struct Game {
     words: Arc<WordList>,
-    answer_index: usize,
-    custom_answer: Option<String>,
+    answer: Word,
     round: usize,
     pub state: GameState,
 }
@@ -84,10 +161,10 @@ impl Game {
         let mut index: usize = rand::random();
         index %= words.answers.len();
 
+        let answer = Word::try_from(words.answers[index].as_str()).expect("validated answer");
         Game {
             words,
-            answer_index: index,
-            custom_answer: None,
+            answer,
             round: 0,
             state: GameState::On,
         }
@@ -98,59 +175,28 @@ impl Game {
     pub fn candidates(&self) -> &[String] {
         &self.words.candidates
     }
+    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
     pub(crate) fn word_list(&self) -> Arc<WordList> {
         Arc::clone(&self.words)
     }
-    pub fn set_game_with_answer_index(&mut self, index: usize) {
-        assert!(index < self.answers().len());
-        self.answer_index = index;
-        self.custom_answer = None;
+    pub fn set_game_with_answer_index(&mut self, index: usize) -> Result<(), GameError> {
+        let answer = self
+            .answers()
+            .get(index)
+            .ok_or(GameError::InvalidAnswerIndex(index))?;
+        self.answer = Word::try_from(answer.as_str())?;
         self.round = 0;
         self.state = GameState::On;
+        Ok(())
     }
-    pub fn set_game_with_answer(&mut self, answer: impl Into<String>) {
-        self.answer_index = 0;
-        self.custom_answer = Some(answer.into());
+    pub fn set_game_with_answer(&mut self, answer: impl AsRef<str>) -> Result<(), GameError> {
+        self.answer = Word::try_from(answer.as_ref())?;
         self.round = 0;
         self.state = GameState::On;
+        Ok(())
     }
-    fn current_answer(&self) -> &str {
-        self.custom_answer
-            .as_deref()
-            .unwrap_or(&self.words.answers[self.answer_index])
-    }
-    pub fn grade_guess(&self, word: &str) -> Match {
-        let mut one_match = Match::new();
-        let answer_bytes = self.current_answer().as_bytes();
-        let word_bytes = word.as_bytes();
-
-        // Build a per-letter count map of the answer
-        let mut counts = [0u8; 26];
-        for &byte in answer_bytes.iter() {
-            counts[(byte - b'a') as usize] += 1;
-        }
-
-        // First pass: mark correct positions and decrement counts
-        for i in 0..5 {
-            if word_bytes[i] == answer_bytes[i] {
-                one_match.states[i] = GuessState::Correct;
-                counts[(word_bytes[i] - b'a') as usize] -= 1;
-            }
-        }
-
-        // Second pass: mark misplace or wrong for non-correct positions
-        for i in 0..5 {
-            if one_match.states[i] != GuessState::Correct {
-                let letter_index = (word_bytes[i] - b'a') as usize;
-                if counts[letter_index] > 0 {
-                    one_match.states[i] = GuessState::Misplace;
-                    counts[letter_index] -= 1;
-                } else {
-                    one_match.states[i] = GuessState::Wrong;
-                }
-            }
-        }
-        one_match
+    pub fn grade_guess(&self, word: &str) -> Result<Match, GameError> {
+        Ok(self.answer.grade(Word::try_from(word)?))
     }
     pub fn check_valid_guess(&self, word: &str) -> bool {
         self.candidates().iter().any(|candidate| candidate == word)
@@ -170,20 +216,18 @@ impl Game {
         self.round += 1;
     }
     pub fn answer(&self) -> &str {
-        self.current_answer()
+        self.answer.as_str()
     }
     pub fn reset(&mut self) {
         let mut index: usize = rand::random();
         index %= self.answers().len();
 
-        self.answer_index = index;
-        self.custom_answer = None;
-        self.round = 0;
-        self.state = GameState::On;
+        self.set_game_with_answer_index(index)
+            .expect("random index is within the answer list");
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match {
     pub states: [GuessState; 5],
 }
@@ -210,6 +254,61 @@ pub enum GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_words_are_rejected_without_changing_the_game() {
+        let mut game = Game::new();
+        game.set_game_with_answer("apple").unwrap();
+        game.progress_game(&Match::new());
+        for word in ["", "a", "applejunk", "APPLE", "app1e", "éabc", "abc🦀"] {
+            assert_eq!(game.grade_guess(word), Err(GameError::InvalidWord));
+            assert_eq!(game.set_game_with_answer(word), Err(GameError::InvalidWord));
+            assert_eq!(game.answer(), "apple");
+            assert_eq!(game.round(), 1);
+        }
+        assert_eq!(
+            game.set_game_with_answer_index(usize::MAX),
+            Err(GameError::InvalidAnswerIndex(usize::MAX))
+        );
+        assert_eq!(game.answer(), "apple");
+        assert_eq!(game.round(), 1);
+    }
+
+    #[test]
+    fn grading_matches_a_reference_for_all_three_letter_alphabet_pairs() {
+        let words: Vec<_> = (0..243)
+            .map(|mut i| {
+                let mut bytes = [b'a'; 5];
+                for byte in &mut bytes {
+                    *byte += (i % 3) as u8;
+                    i /= 3;
+                }
+                Word::try_from(bytes).unwrap()
+            })
+            .collect();
+        for &answer in &words {
+            for &guess in &words {
+                let mut remaining = answer.0.map(Some);
+                let mut expected = Match::new();
+                for (i, &letter) in guess.0.iter().enumerate() {
+                    if remaining[i] == Some(letter) {
+                        expected.states[i] = GuessState::Correct;
+                        remaining[i] = None;
+                    }
+                }
+                for (state, &letter) in expected.states.iter_mut().zip(&guess.0) {
+                    if *state == GuessState::Correct {
+                        continue;
+                    }
+                    if let Some(slot) = remaining.iter_mut().find(|slot| **slot == Some(letter)) {
+                        *state = GuessState::Misplace;
+                        *slot = None;
+                    }
+                }
+                assert_eq!(answer.grade(guess), expected, "{answer:?} / {guess:?}");
+            }
+        }
+    }
 
     fn correct_match() -> Match {
         Match {
@@ -243,9 +342,9 @@ mod tests {
     #[test]
     fn grade_guess_marks_exact_match_as_all_correct() {
         let mut game = Game::new();
-        game.set_game_with_answer("cigar".to_string());
+        game.set_game_with_answer("cigar").unwrap();
 
-        let one_match = game.grade_guess("cigar");
+        let one_match = game.grade_guess("cigar").unwrap();
 
         assert_eq!(one_match.states, [GuessState::Correct; 5]);
     }
@@ -253,10 +352,10 @@ mod tests {
     #[test]
     fn grade_guess_marks_partial_and_mixed_matches_with_current_rules() {
         let mut game = Game::new();
-        game.set_game_with_answer("cigar".to_string());
+        game.set_game_with_answer("cigar").unwrap();
 
-        let partial = game.grade_guess("argon");
-        let mixed = game.grade_guess("cairn");
+        let partial = game.grade_guess("argon").unwrap();
+        let mixed = game.grade_guess("cairn").unwrap();
 
         assert_eq!(
             partial.states,
@@ -283,9 +382,9 @@ mod tests {
     #[test]
     fn grade_guess_marks_absent_letters_as_wrong() {
         let mut game = Game::new();
-        game.set_game_with_answer("cigar".to_string());
+        game.set_game_with_answer("cigar").unwrap();
 
-        let one_match = game.grade_guess("blush");
+        let one_match = game.grade_guess("blush").unwrap();
 
         assert_eq!(one_match.states, [GuessState::Wrong; 5]);
     }
@@ -320,10 +419,10 @@ mod tests {
             .position(|answer| answer == "zonal")
             .expect("zonal should exist in the answer list");
 
-        game.set_game_with_answer("zonal");
+        game.set_game_with_answer("zonal").unwrap();
         assert_eq!(game.answer(), "zonal");
 
-        game.set_game_with_answer_index(zonal_index);
+        game.set_game_with_answer_index(zonal_index).unwrap();
         assert_eq!(game.answer(), "zonal");
         assert_eq!(game.round(), 0);
         assert!(matches!(game.state, GameState::On));
@@ -333,7 +432,7 @@ mod tests {
     fn set_game_with_answer_accepts_custom_answers() {
         let mut game = Game::new();
 
-        game.set_game_with_answer("abcde");
+        game.set_game_with_answer("abcde").unwrap();
 
         assert_eq!(game.answer(), "abcde");
     }
@@ -347,9 +446,9 @@ mod tests {
     #[test]
     fn grade_guess_handles_duplicate_letters_in_guess() {
         let mut game = Game::new();
-        game.set_game_with_answer("apple");
+        game.set_game_with_answer("apple").unwrap();
 
-        let one_match = game.grade_guess("eerie");
+        let one_match = game.grade_guess("eerie").unwrap();
 
         assert_eq!(
             one_match.states,
@@ -366,12 +465,12 @@ mod tests {
     #[test]
     fn grade_guess_caps_misplace_by_answer_letter_count() {
         let mut game = Game::new();
-        game.set_game_with_answer("apple");
+        game.set_game_with_answer("apple").unwrap();
 
         // Position 0 is an exact 'a' match, consuming the answer's single 'a'.
         // The remaining four 'a's in the guess must all be Wrong — not
         // Misplace — because the answer has no more 'a's to account for them.
-        let one_match = game.grade_guess("aaaaa");
+        let one_match = game.grade_guess("aaaaa").unwrap();
 
         assert_eq!(
             one_match.states,

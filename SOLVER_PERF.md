@@ -1,82 +1,65 @@
-# Faster Wordle Solver
+# Solver correctness and performance
 
-Performance and correctness refactor of `src/solver.rs`. The goal was to speed
-up a single run of the solver without changing which word it chooses for any
-given answer. Behavior is preserved bit-for-bit: on the full 2309-answer
-benchmark, the average trial count is unchanged at `4.125595495885665`.
+The solver now uses the same duplicate-aware Wordle grading as the game for
+simulation, filtering, and entropy partitions. Earlier benchmarks in this file
+used letter-presence-only feedback; their timings and guess sequences are not
+a correctness baseline for this version.
 
-## Results
+## Current results
 
-| Metric              | Before   | After    |
-|---------------------|----------|----------|
-| `solve_all` wall    | 68.26 s  | 1.30 s   |
-| `solve_one` single  | ~hundreds ms | ~9 ms |
-| Average trial       | 4.125595495885665 | 4.125595495885665 |
-| Failures / unsolved | 0 / 0    | 0 / 0    |
+A release run over all 2,309 answers produced:
 
-~52× speedup on the benchmark, with no regression in guess quality.
+- 9,511 total guesses, averaging 4.119099177132958.
+- Zero games exceeding six guesses and zero unsolved games.
+- About 6.1 seconds for the full benchmark in the review environment, with two
+  available CPUs. Timings depend on hardware and system load.
+- A fresh-process solve of `cigar` took roughly 28–61 ms, including word-list
+  loading, second-guess computation, and the remaining guesses.
 
-## What changed
+The first second-guess request now computes only the observed opening pattern.
+Previously, even a single game synchronously populated the complete table;
+the review measured approximately 1.5 seconds for that first lookup. A complete
+batch still needs many patterns, and proper duplicate grading does more work
+per pair than the former bitset approximation.
 
-### `src/game.rs` — word list layout
-`WordList` now carries two cache-friendly views populated once at load:
+## Design
 
-- `candidate_bytes: Box<[[u8; 5]]>` — fixed-size byte arrays for every word,
-  avoiding the UTF-8 indirection on every letter access.
-- `candidate_bitvecs: Box<[u32]>` — precomputed 26-bit letter set per word, so
-  grading no longer rebuilds the set in the inner loop.
+- Validated `Word` values enforce exactly five lowercase ASCII letters.
+  The shared grader consumes exact matches before misplaced letters.
+- The immutable word list is shared across games. Its solver-only array of
+  validated words is initialized lazily and is excluded from GUI-only/WASM
+  builds.
+- Candidate indices are filtered in place. Reset clears and refills existing
+  storage; there is no parallel validity bitmap or redundant survivor count.
+- One scoring implementation serves both fresh searches and cached results.
+  Highest entropy wins, with the lowest dictionary index breaking ties.
+- Each of the 243 opening patterns has its own lazy cache entry. Cache
+  initialization does not hold locks while running Rayon work, avoiding nested
+  pool deadlocks. Concurrent misses may compute the same entry independently.
+- Single-game searches score guesses in parallel. The batch benchmark
+  distributes games across Rayon workers and scores each worker's game
+  serially, avoiding nested scheduling. Statistics use local accumulation and
+  reduction, without shared mutex counters.
+- Normal debug builds do not recompute and print a full candidate ranking.
 
-### `src/solver.rs` — five layered optimizations
+The complete allowed-guess dictionary intentionally remains the initial
+hypothesis pool. An empty pool intentionally returns the lowest-index guess
+with zero entropy. Neither behavior changed.
 
-1. **Cleanup.** Removed the dead `data/cache` read in `Solver::bind` and the
-   unused `current_candidate: String` field.
-2. **Byte layout.** `grade_pair` and `try_match` rewritten to operate on
-   `&[u8; 5]` with a hoisted bitvec (`grade_pair_bytes`, `try_match_bytes`).
-3. **Skip-list.** Added `valid_indices: Vec<u32>` alongside the existing
-   `valid_table`. `filter_valid_word` rebuilds it in lockstep, and
-   `calculate_score` iterates only the surviving candidates instead of walking
-   all ~13k with a `valid_word(i)` branch.
-4. **Parallel scoring.** The outer `for i in 0..N` search in `new_guess` is
-   now a Rayon `par_iter().reduce()` with deterministic tie-break
-   (highest score, lowest index). The `parallel_equals_serial` test pins that
-   the parallel reduction agrees with a strict-greater serial scan.
-5. **Second-guess table.** A 243-entry `OnceLock` table keyed by the possible
-   gradings of the opening word `"tares"` stores the best round-1 guess (and
-   its score, bitwise). At round 1, `new_guess` is a constant-time lookup
-   instead of a full entropy search over ~13k candidates. Populated lazily on
-   first access; ~seconds of startup amortized across every subsequent solve.
+## Reproduce
 
-### Semantic quirk preserved
+```bash
+cargo test --locked --all-targets --features solver
+cargo clippy --locked --all-targets --features solver -- -D warnings
+cargo run --locked --release --features solver --bin solver -- --check
+cargo run --locked --release --features solver --bin solver -- --word cigar
+```
 
-`solver::grade_pair` and `game::grade_guess` use opposite letter-set
-directions — `grade_pair` probes the guess's letter against the answer's
-bits, whereas the correct Wordle semantics (`grade_guess`, `try_match`)
-probe the other way. The two diverge on pairs like
-`grade_pair("abbed", "beads")`. This quirk is intentional here because
-"fixing" it would change the solver's choices for a non-trivial subset of
-answers. The `grade_pair_quirk_pinned` test locks the current values so
-nobody accidentally "cleans it up" without re-baselining the golden
-sequences.
+The native-only `solver` feature enables the solver module and binary.
+The benchmark's `--check` mode exits unsuccessfully on any unsolved game, any
+game exceeding six guesses, or an average above 4.2. Unsolved games contribute
+their actual attempted guesses (capped at 21) to the reported average.
 
-## Tests added
-
-- `golden_guess_sequences` — ten full solve traces pinned to current output.
-- `grade_pair_quirk_pinned` — four exact pair values lock the reversed
-  semantics.
-- `calculate_score_bitwise_stable` — `f64::to_bits()` snapshot of the round-0
-  entropy; catches floating-point reordering.
-- `parallel_equals_serial` — parallel reduction matches serial scan on a
-  non-round-1 state.
-- `second_guess_table_matches_fresh_search` — sampled pattern indices match
-  what a fresh search produces.
-
-## Out of scope / future work
-
-- Fixing the `grade_pair` / `grade_guess` semantic inconsistency (would change
-  solver output; needs re-baselined golden sequences).
-- Replacing the 8-manual-thread pool in `roget.rs::solve_all` with a flat
-  Rayon iterator (cleaner, and removes the nested-parallelism
-  oversubscription seen today; irrelevant to single-solve latency).
-- Serializing the full 12,974² pair matrix to disk with a header/hash
-  (`data/precompute_pair` is scratch from an earlier experiment — left
-  untracked; `.gitignore` updated to keep it out).
+Tests cover malformed inputs, an independent duplicate-grading reference over
+59,049 word pairs, external feedback accumulation, preserved candidate-pool
+behavior, lazy caching, deterministic search, and updated golden solve traces.
