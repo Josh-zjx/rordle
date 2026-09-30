@@ -17,8 +17,9 @@ cargo check --locked --target wasm32-unknown-unknown --all-targets
 scripts/build-wasm.sh
 ```
 
-The solver module and binary require the native-only `solver` feature. GUI and
-WASM builds do not need it. All word data is embedded at compile time; executables
+The solver module is always built because the GUI hint uses it. The native-only
+`solver` feature adds Rayon-parallel search and the benchmark binary; without it,
+searches run serially. All word data is embedded at compile time; executables
 can run from any working directory.
 
 ## Architecture
@@ -32,7 +33,10 @@ can run from any working directory.
 - `src/roget.rs`: native benchmark. Rayon distributes games; worker-local
   statistics are reduced without shared counters. `--check` enforces regression
   limits, and `--word WORD` prints one solve trace.
-- `src/ui.rs`: Slint callbacks and the flat 30-cell board model.
+- `src/ui.rs`: Slint callbacks and the flat 30-cell board model. A `Solver`
+  mirrors every submitted guess; the Hint button fills the current row with
+  `Solver::suggest`, searching on a worker thread natively and synchronously
+  in WASM. Submits and resets discard in-flight hints.
 - `src/play.rs`: desktop entry point.
 - `src/web.rs`: WASM startup and panic hook.
 - `src/build.rs` and `ui/window.slint`: compile-time Slint UI integration.

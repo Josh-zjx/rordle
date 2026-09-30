@@ -1,4 +1,5 @@
 use crate::game::{Game, GameError, GuessState, Match, Word, WordList};
+#[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -23,7 +24,7 @@ impl Guess {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Solver {
     patterns: Vec<Pattern>,
     valid_indices: Vec<usize>,
@@ -72,17 +73,19 @@ fn better_guess(a: (usize, f64), b: (usize, f64)) -> (usize, f64) {
 }
 
 fn best_over(words: &[Word], valid: &[usize]) -> (usize, f64) {
-    // Batch callers already distribute games across Rayon workers. Score each
-    // such game serially, avoiding nested scheduling and repeated cache misses.
-    if rayon::current_thread_index().is_some() {
+    // Single-game searches score guesses in parallel when Rayon is available.
+    // Batch callers already distribute games across Rayon workers, so score
+    // each such game serially, avoiding nested scheduling and cache misses.
+    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
+    if rayon::current_thread_index().is_none() {
         return (0..words.len())
+            .into_par_iter()
             .map(|g| (g, score_over(words, valid, g)))
-            .fold((words.len(), f64::NEG_INFINITY), better_guess);
+            .reduce(|| (words.len(), f64::NEG_INFINITY), better_guess);
     }
     (0..words.len())
-        .into_par_iter()
         .map(|g| (g, score_over(words, valid, g)))
-        .reduce(|| (words.len(), f64::NEG_INFINITY), better_guess)
+        .fold((words.len(), f64::NEG_INFINITY), better_guess)
 }
 
 struct SecondGuessCache {
@@ -141,6 +144,12 @@ impl Solver {
                 search()
             };
         (Guess::Candidate(index), score)
+    }
+
+    /// The best next guess as a word, e.g. for a player-facing hint.
+    pub fn suggest(&self, round: usize) -> String {
+        let (guess, _) = self.new_guess(round);
+        guess.as_str(&self.words.candidates).to_owned()
     }
 
     pub fn try_guess(&mut self, guess: Guess, game: &mut Game) -> Option<Match> {
@@ -287,6 +296,23 @@ mod tests {
         );
         assert_eq!(solver.valid_indices.as_ptr(), allocation);
         assert!(solver.patterns.is_empty());
+    }
+
+    #[test]
+    fn suggest_follows_observed_feedback() {
+        let mut game = Game::new();
+        game.set_game_with_answer("cigar").unwrap();
+        let mut solver = Solver::bind(&game);
+        assert_eq!(solver.suggest(0), "tares");
+        for guess in ["tares", "broil", "micra"] {
+            solver
+                .add_pattern(
+                    guess.as_bytes().try_into().unwrap(),
+                    &game.grade_guess(guess).unwrap(),
+                )
+                .unwrap();
+        }
+        assert_eq!(solver.suggest(3), "cigar");
     }
 
     #[test]

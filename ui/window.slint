@@ -33,20 +33,27 @@ component CharBlock inherits Rectangle {
     }
 }
 
-component ResetButton inherits Rectangle {
+component PillButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <color> base-color;
+    in property <color> hover-color;
+    in property <color> pressed-color;
     callback clicked;
 
     width: 128px;
     height: 36px;
     border-radius: 18px;
-    background: touch.pressed
-        ? #4F8850
-        : (touch.has-hover ? #5E9959 : #6AAA64);
+    background: !root.enabled
+        ? #D3D6DA
+        : (touch.pressed
+            ? root.pressed-color
+            : (touch.has-hover ? root.hover-color : root.base-color));
 
     animate background { duration: 120ms; easing: ease-out; }
 
     Text {
-        text: "NEW GAME";
+        text: root.label;
         font-size: 12px;
         font-weight: 700;
         color: #FFFFFF;
@@ -56,6 +63,7 @@ component ResetButton inherits Rectangle {
     }
 
     touch := TouchArea {
+        enabled: root.enabled;
         clicked => { root.clicked(); }
     }
 }
@@ -74,11 +82,13 @@ export component MainWindow inherits Window {
     in property <bool> invalid: false;
     in property <bool> success: false;
     in property <bool> failed: false;
+    in property <bool> hint_pending: false;
     in property <string> answer_text;
     in property <[CharItem]> char_items: [];
 
     callback handle_keyboard(string);
     callback reset();
+    callback hint();
 
     key_handler := FocusScope {
         width: 100%;
@@ -134,14 +144,16 @@ export component MainWindow inherits Window {
                     ? "You got it!"
                     : (root.failed
                         ? "Answer: " + root.answer_text
-                        : (root.invalid ? "Not in word list" : ""));
+                        : (root.invalid
+                            ? "Not in word list"
+                            : (root.hint_pending ? "Finding a hint..." : "")));
                 font-size: 15px;
                 font-weight: 600;
                 color: root.success
                     ? #6AAA64
                     : (root.failed
                         ? #1A1A1B
-                        : (root.invalid ? #B85450 : #1A1A1B));
+                        : (root.invalid ? #B85450 : #787C7E));
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -149,7 +161,20 @@ export component MainWindow inherits Window {
             // Footer
             HorizontalLayout {
                 alignment: center;
-                ResetButton {
+                spacing: 12px;
+                PillButton {
+                    label: "HINT";
+                    enabled: !root.success && !root.failed && !root.hint_pending;
+                    base-color: #C9B458;
+                    hover-color: #B8A44D;
+                    pressed-color: #A69343;
+                    clicked => { root.hint(); }
+                }
+                PillButton {
+                    label: "NEW GAME";
+                    base-color: #6AAA64;
+                    hover-color: #5E9959;
+                    pressed-color: #4F8850;
                     clicked => { root.reset(); }
                 }
             }

@@ -88,7 +88,6 @@ impl Word {
 pub(crate) struct WordList {
     pub(crate) answers: Vec<String>,
     pub(crate) candidates: Vec<String>,
-    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
     candidate_words: OnceLock<Box<[Word]>>,
 }
 
@@ -107,12 +106,10 @@ impl WordList {
         Ok(WordList {
             answers,
             candidates,
-            #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
             candidate_words: OnceLock::new(),
         })
     }
 
-    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
     pub(crate) fn candidate_words(&self) -> &[Word] {
         self.candidate_words.get_or_init(|| {
             self.candidates
@@ -175,7 +172,6 @@ impl Game {
     pub fn candidates(&self) -> &[String] {
         &self.words.candidates
     }
-    #[cfg(all(feature = "solver", not(target_arch = "wasm32")))]
     pub(crate) fn word_list(&self) -> Arc<WordList> {
         Arc::clone(&self.words)
     }
