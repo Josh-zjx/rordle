@@ -59,6 +59,10 @@ impl Word {
         std::str::from_utf8(&self.0).expect("Word contains only ASCII letters")
     }
 
+    pub(crate) fn letters(self) -> [u8; 5] {
+        self.0
+    }
+
     /// Grade a guess against this answer, consuming exact matches first.
     #[inline]
     pub(crate) fn grade(self, guess: Self) -> Match {

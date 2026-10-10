@@ -27,7 +27,8 @@ can run from any working directory.
 - `src/game.rs`: validated `Word` values, shared duplicate-aware grading, game
   state, and a shared immutable word list. String-based grading and answer
   setters return `Result`; malformed input leaves game state unchanged.
-- `src/solver.rs`: entropy scoring over all allowed guesses, incremental
+- `src/solver.rs`: entropy scoring over all allowed guesses with a
+  lane-parallel grading kernel over a transposed pool, incremental
   filtering, and a lazy second-guess cache. `Solver::bind` is infallible.
   `add_pattern` validates the word and immediately applies feedback.
 - `src/roget.rs`: native benchmark. Rayon distributes games; worker-local
@@ -49,7 +50,10 @@ hypothesis pool. An empty pool intentionally retains the lowest-index,
 zero-entropy guess fallback. Do not replace either behavior.
 
 The game, candidate filtering, and entropy partitions use the same Wordle
-duplicate-letter rules. The second-guess cache is populated per observed
+duplicate-letter rules. Partitions use `Pool::codes`, a vectorizable copy of
+`Word::grade`; keep the two in step and their equivalence tests passing.
+Entropy sums occupied buckets in ascending order so scores stay bit-identical.
+`.cargo/config.toml` enables WASM simd128 for the kernel. The second-guess cache is populated per observed
 `tares` pattern, and only applies after exactly one observation. Filtering
 retains prior constraints; reset reuses vector capacity.
 

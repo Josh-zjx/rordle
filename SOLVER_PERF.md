@@ -9,12 +9,15 @@ a correctness baseline for this version.
 
 A release run over all 2,309 answers produced:
 
-- 9,511 total guesses, averaging 4.119099177132958.
+- 9,403 total guesses, averaging 4.072325682113469 (previously 9,511 and
+  4.119099177132958, before ties preferred possible answers).
 - Zero games exceeding six guesses and zero unsolved games.
-- About 6.1 seconds for the full benchmark in the review environment, with two
-  available CPUs. Timings depend on hardware and system load.
-- A fresh-process solve of `cigar` took roughly 28–61 ms, including word-list
-  loading, second-guess computation, and the remaining guesses.
+- About 2.5 seconds for the full benchmark on an i7-9700K with two available
+  CPUs, down from 6.1 seconds on the same machine before the grading kernel
+  (62 G instructions and 100 M branch misses, previously 162 G and 438 M).
+  Timings depend on hardware and system load.
+- A fresh-process solve of `cigar` took roughly 8–9 ms there, including
+  word-list loading, second-guess computation, and the remaining guesses.
 
 The first second-guess request now computes only the observed opening pattern.
 Previously, even a single game synchronously populated the complete table;
@@ -30,8 +33,23 @@ per pair than the former bitset approximation.
   validated words is initialized lazily, on the first solver search.
 - Candidate indices are filtered in place. Reset clears and refills existing
   storage; there is no parallel validity bitmap or redundant survivor count.
+- Each search transposes the candidate pool into five letter columns padded
+  to 16-answer chunks. A branchless kernel grades one guess against a whole
+  chunk in `u8` lanes, which LLVM vectorizes (SSE2 on the x86-64 baseline,
+  simd128 on WASM via `.cargo/config.toml`). It encodes the same duplicate
+  rules as `Word::grade`, and tests check the two agree exhaustively over a
+  three-letter alphabet and across the dictionary. Sixteen lanes measured
+  faster than 32 even with AVX2, because late-round pools are small and pad
+  whole chunks; `target-cpu=native` gained only about 4%.
+- The entropy sum visits only occupied buckets, via a bitmap, in ascending
+  pattern order. Results are bit-identical to scanning all 243 buckets, and the
+  scan's unpredictable zero-count branch no longer dominates small pools.
 - One scoring implementation serves both fresh searches and cached results.
-  Highest entropy wins, with the lowest dictionary index breaking ties.
+  Highest entropy wins. Among equal-entropy guesses, one still consistent
+  with the feedback wins, because it may end the game immediately; the
+  lowest dictionary index breaks any remaining tie. Answers are stored after
+  the non-answer words, so an index-only tie-break always chose a guess that
+  could not win.
 - Each of the 243 opening patterns has its own lazy cache entry. Cache
   initialization does not hold locks while running Rayon work, avoiding nested
   pool deadlocks. Concurrent misses may compute the same entry independently.
