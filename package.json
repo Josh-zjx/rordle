@@ -1,0 +1,10 @@
+{
+  "name": "rordle-web-tests",
+  "private": true,
+  "scripts": {
+    "test:web": "node tests/web-smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

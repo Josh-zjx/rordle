@@ -1,29 +1,23 @@
-name: WASM
+name: Build and test WASM
 
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - "src/**"
-      - "ui/**"
-      - "data/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "scripts/build-wasm.sh"
-      - "web/**"
-      - ".github/workflows/wasm.yml"
-  pull_request:
-    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: "-C target-feature=+simd128"
 
 jobs:
   wasm_build:
-    name: Build WASM bundle
+    name: Build and browser test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Rust (stable) with wasm32 target
         uses: dtolnay/rust-toolchain@stable
@@ -34,21 +28,25 @@ jobs:
         with:
           shared-key: wasm
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
       - name: Check WASM targets
         run: cargo check --locked --target wasm32-unknown-unknown --all-targets
 
       - name: Resolve wasm-bindgen version from Cargo.lock
         id: wbg
         run: |
-          set -euo pipefail
-          VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
-            | grep '^version' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          if [ -z "$VERSION" ]; then
-            echo "::error::Failed to parse wasm-bindgen version from Cargo.lock"
-            exit 1
-          fi
-          echo "Using wasm-bindgen $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os, tomllib
+          with open("Cargo.lock", "rb") as source:
+              packages = tomllib.load(source)["package"]
+          version = next(p["version"] for p in packages if p["name"] == "wasm-bindgen")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
+          PY
 
       - name: Install wasm-bindgen-cli (matching Cargo.lock)
         uses: taiki-e/install-action@v2
@@ -58,22 +56,43 @@ jobs:
       - name: Build WASM bundle
         run: bash scripts/build-wasm.sh
 
-      - name: Verify artifacts
+      - name: Install browser test dependencies
         run: |
-          set -euo pipefail
-          test -f web/pkg/rordle_bg.wasm || { echo "::error::missing rordle_bg.wasm"; exit 1; }
-          test -f web/pkg/rordle.js      || { echo "::error::missing rordle.js"; exit 1; }
-          SIZE=$(stat -c%s web/pkg/rordle_bg.wasm)
-          echo "rordle_bg.wasm: $SIZE bytes"
-          if [ "$SIZE" -lt 500000 ]; then
-            echo "::error::WASM artifact suspiciously small ($SIZE bytes)"
-            exit 1
-          fi
-          ls -lh web/pkg/
+          npm ci
+          npx playwright install --with-deps chromium
 
-      - name: Upload bundle
-        uses: actions/upload-artifact@v4
+      - name: Test the browser game
+        run: npm run test:web
+
+      - name: Package the tested files
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/web_bundle.py bundle --sha "$SOURCE_SHA" --run-id "$CI_RUN_ID"
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v7
         with:
           name: rordle-wasm-${{ github.sha }}
-          path: web/pkg/
-          retention-days: 14
+          path: |
+            dist/rordle-web.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+          overwrite: true
+
+      - name: Summarize candidate
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+        run: |
+          {
+            echo "WASM release candidate built and browser-tested."
+            echo ""
+            echo "Source: $SOURCE_SHA"
+            echo ""
+            echo "CI run ID: $CI_RUN_ID"
+            echo ""
+            echo 'After every CI job passes, use **Release WASM → Run workflow** to publish this candidate.'
+          } >> "$GITHUB_STEP_SUMMARY"

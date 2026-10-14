@@ -1,3 +1,10 @@
 /target
 /data/precompute_pair
 /web/pkg
+/dist
+/_site
+/candidate
+/history
+/history-tags.txt
+/node_modules
+__pycache__/

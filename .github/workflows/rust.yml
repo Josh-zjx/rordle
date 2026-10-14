@@ -1,17 +1,32 @@
-name: Rust
+name: CI
 
 on:
   workflow_dispatch:
   push:
+    branches: ["**"]
     paths:
       - "src/**"
       - "ui/**"
-      - ".github/workflows/**"
+      - ".github/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "data/**"
+      - "assets/**"
+      - ".cargo/**"
+      - "scripts/**"
+      - "tests/**"
+      - "web/**"
+      - "package.json"
+      - "package-lock.json"
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,7 +36,10 @@ jobs:
   linux_build_test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --locked --bin game
@@ -32,7 +50,10 @@ jobs:
     needs: linux_build_test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Run
       run: cargo run --locked --release --features solver --bin solver -- --check
@@ -42,7 +63,10 @@ jobs:
   windows_build_test:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --locked --bin game
@@ -52,7 +76,10 @@ jobs:
   macos_build_test:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --locked --bin game
@@ -62,9 +89,26 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+    - uses: actions/setup-node@v7
+      with:
+        node-version: "24"
+        package-manager-cache: false
     - uses: Swatinem/rust-cache@v2
     - name: clippy
       run: cargo clippy --locked --all-targets --features solver -- -D warnings
     - name: formatting
       run: cargo fmt --check
+    - name: Test web release tooling
+      run: |
+        python3 -m unittest discover -s scripts -p '*_test.py'
+        node --test tests/release-validation.test.cjs
+
+  wasm:
+    name: WASM
+    uses: ./.github/workflows/wasm.yml

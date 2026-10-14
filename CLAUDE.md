@@ -22,6 +22,17 @@ The solver module is always built because the GUI hint uses it. The native-only
 searches run serially. All word data is embedded at compile time; executables
 can run from any working directory.
 
+The WASM dependency selects only Slint's Winit backend and FemtoVG renderer,
+omitting the default software renderer and desktop backends. Native Slint
+dependencies retain their defaults. Release builds keep `opt-level = 3`:
+the hint solver's grading kernel benefits from aggressive loop optimization,
+and size-focused settings should be benchmarked before changing this.
+
+GitHub Actions builds and tests automatically through `rust.yml` and its reusable
+`wasm.yml`. `release.yml` publishes a successful default-branch CI artifact only
+after a manual workflow dispatch. See `DEPLOYMENT.md` for Pages setup, versioned
+release URLs, blog embedding, and local browser/release-tool checks.
+
 ## Architecture
 
 - `src/game.rs`: validated `Word` values, shared duplicate-aware grading, game
